@@ -387,6 +387,8 @@ abstract class GroupMembershipResolver
             $objects = & $this->objects;
         }
 
+        $times = array();
+
         foreach ($objects as $object) {
             if ($object->shouldBeRemoved()) {
                 continue;
@@ -394,10 +396,12 @@ abstract class GroupMembershipResolver
             if ($object->isTemplate()) {
                 continue;
             }
+            $mt = microtime(true);
+
             // TODO: fix this last hard host dependency
             $resolver = HostApplyMatches::prepare($object);
             foreach ($groups as $groupId => $filter) {
-                if ($resolver->matchesFilter(Filter::fromQueryString($filter))) {
+                if ($resolver->matchesFilter($filter)) {
                     if (! array_key_exists($groupId, $mappings)) {
                         $mappings[$groupId] = array();
                     }
@@ -406,11 +410,32 @@ abstract class GroupMembershipResolver
                     $mappings[$groupId][$id] = $id;
                 }
             }
+
+            $times[] = (microtime(true) - $mt) * 1000;
         }
+
+        $count = count($times);
+        $min = $max = $avg = 0;
+        if ($count > 0) {
+            $min = min($times);
+            $max = max($times);
+            $avg = array_sum($times) / $count;
+        }
+
+        Benchmark::measure(sprintf(
+            'Hostgroup apply recalculated: objects=%d groups=%d min=%d max=%d avg=%d (in ms)',
+            $count,
+            count($groups),
+            $min,
+            $max,
+            $avg
+        ));
 
         foreach ($this->fetchMissingSingleAssignments() as $row) {
             $mappings[$row->group_id][$row->object_id] = $row->object_id;
         }
+
+        Benchmark::measure('Done with single assignments');
 
         $this->newMappings = $mappings;
     }
@@ -431,7 +456,7 @@ abstract class GroupMembershipResolver
             $list[$id] = $group->get('assign_filter');
         }
 
-        return $list;
+        return $this->parseFilters($list);
     }
 
     protected function fetchAppliedGroups()
@@ -445,7 +470,21 @@ abstract class GroupMembershipResolver
             )
         )->where('assign_filter IS NOT NULL');
 
-        return $this->db->fetchPairs($query);
+        return $this->parseFilters($this->db->fetchPairs($query));
+    }
+
+    /**
+     * Parsing a list of query strings to Filter
+     *
+     * @param string[] $list List of query strings
+     *
+     * @return Filter[]
+     */
+    protected function parseFilters($list)
+    {
+        return array_map(function ($s) {
+            return Filter::fromQueryString($s);
+        }, $list);
     }
 
     protected function fetchMissingSingleAssignments()
