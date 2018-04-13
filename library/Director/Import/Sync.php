@@ -383,14 +383,23 @@ class Sync
             $this->objects = array();
             $destinationKeyPattern = $this->rule->getDestinationKeyPattern();
 
+            $hasHostKey = strpos($destinationKeyPattern, '${host}') !== false;
+            $hasSetKey = strpos($destinationKeyPattern, '${service_set}') !== false;
+            $hasTypeName = strpos($destinationKeyPattern, '${object_type}') !== false;
+
             foreach (IcingaObject::loadAllByType(
                 $this->rule->object_type,
                 $this->db
             ) as $object) {
                 if ($object instanceof IcingaService) {
-                    if (strstr($destinationKeyPattern, '${host}') && $object->host_id === null) {
+                    if ($object->object_type === 'apply') {
+                        // we can not sync apply without a proper way of unique identification
                         continue;
-                    } elseif (strstr($destinationKeyPattern, '${service_set}') && $object->service_set_id === null) {
+                    } elseif ($hasHostKey && $object->host_id === null) {
+                        continue;
+                    } elseif ($hasSetKey && $object->service_set_id === null) {
+                        continue;
+                    } elseif ($hasTypeName && $object->object_type === 'object') {
                         continue;
                     }
                 }
@@ -415,6 +424,12 @@ class Sync
                 $this->rule->object_type,
                 $this->db
             );
+
+            if (is_int(key($this->objects))) {
+                // This prohibits sync of numeric keys for existing objects
+                // e.g. this fails when syncing services without combined key
+                throw new IcingaException('Keys of existing objects appear to be numeric, can only work with names!');
+            }
         }
 
         // TODO: should be obsoleted by a better "loadFiltered" method
@@ -464,10 +479,16 @@ class Sync
                         if ($prop === 'import') {
                             if (is_array($val)) {
                                 $imports = array_merge($imports, $val);
-                            } elseif (!is_null($val)) {
+                            } elseif (! is_null($val)) {
                                 $imports[] = $val;
                             }
                         } else {
+                            if ($prop === 'object_type' && ! in_array($val, array('template', 'object'))) {
+                                throw new IcingaException(
+                                    'You can only sync templates and objects, not type "%s"',
+                                    $val
+                                );
+                            }
                             $newProps[$prop] = $val;
                         }
                     }
