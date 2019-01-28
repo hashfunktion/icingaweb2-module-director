@@ -54,10 +54,9 @@ class SyncCheckForm extends DirectorForm
 
             $this->addHtml($html);
         } elseif ($this->rule->get('sync_state') === 'in-sync') {
-            $this->setSuccessMessage(
+            $this->notifySuccess(
                 $this->translate('Nothing would change, this rule is still in sync')
             );
-            parent::onSuccess();
         } else {
             $this->addError($this->translate('Checking this sync rule failed'));
         }

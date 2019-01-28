@@ -2,9 +2,9 @@
 
 namespace dipl\Web\Widget;
 
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 
-class ActionBar extends BaseElement
+class ActionBar extends BaseHtmlElement
 {
     protected $contentSeparator = ' ';
 
@@ -19,7 +19,7 @@ class ActionBar extends BaseElement
      */
     public function setBaseTarget($target)
     {
-        $this->attributes()->set('data-base-target', $target);
+        $this->getAttributes()->set('data-base-target', $target);
         return $this;
     }
 }

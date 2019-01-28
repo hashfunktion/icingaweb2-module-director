@@ -17,6 +17,10 @@ class PropertyModifierRejectOrSelect extends PropertyModifierHook
         return 'Black or White-list rows based on property value';
     }
 
+    /**
+     * @inheritdoc
+     * @throws \Zend_Form_Exception
+     */
     public static function addSettingsFormFields(QuickForm $form)
     {
         $form->addElement('select', 'filter_method', [
@@ -26,6 +30,8 @@ class PropertyModifierRejectOrSelect extends PropertyModifierHook
             'multiOptions' => $form->optionalEnum([
                 'wildcard' => $form->translate('Simple match with wildcards (*)'),
                 'regex'    => $form->translate('Regular Expression'),
+                'is_true'  => $form->translate('Match boolean TRUE'),
+                'is_false' => $form->translate('Match boolean FALSE'),
                 'is_null'  => $form->translate('Match NULL value columns'),
             ]),
             'class' => 'autosubmit',
@@ -46,7 +52,7 @@ class PropertyModifierRejectOrSelect extends PropertyModifierHook
             'label'       => $form->translate('Policy'),
             'required'    => true,
             'description' => $form->translate(
-                'What should happen with the row, when this property matches the five expression?'
+                'What should happen with the row, when this property matches the given expression?'
             ),
             'value'        => 'reject',
             'multiOptions' => [
@@ -64,6 +70,16 @@ class PropertyModifierRejectOrSelect extends PropertyModifierHook
     public function isNull($string, $expression)
     {
         return $string === null;
+    }
+
+    public function isTrue($string, $expression)
+    {
+        return $string === true;
+    }
+
+    public function isFalse($string, $expression)
+    {
+        return $string === false;
     }
 
     public function matchesWildcard($string, $expression)
@@ -89,6 +105,12 @@ class PropertyModifierRejectOrSelect extends PropertyModifierHook
                 break;
             case 'is_null':
                 $func = 'isNull';
+                break;
+            case 'is_true':
+                $func = 'isTrue';
+                break;
+            case 'is_false':
+                $func = 'isFalse';
                 break;
             default:
                 throw new ConfigurationError(

@@ -45,7 +45,7 @@ class PropertymodifierTable extends ZfQueryBasedTable
 
     protected function assemble()
     {
-        $this->attributes()->set('data-base-target', '_self');
+        $this->getAttributes()->set('data-base-target', '_self');
     }
 
     public function getColumns()
@@ -120,7 +120,7 @@ class PropertymodifierTable extends ZfQueryBasedTable
         return $this->db()->select()->from(
             ['m' => 'import_row_modifier'],
             $this->getColumns()
-        )->where('m.source_id = ?', $this->source->getId())
+        )->where('m.source_id = ?', $this->source->get('id'))
         ->order('priority');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Icinga\Module\Director\Web;
 
+use dipl\Html\Text;
 use Icinga\Module\Director\Exception\NestingError;
 use Icinga\Module\Director\Objects\IcingaObject;
 use Icinga\Web\Request;
@@ -26,6 +27,10 @@ class ObjectPreview
         $this->request = $request;
     }
 
+    /**
+     * @param ControlsAndContent $cc
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function renderTo(ControlsAndContent $cc)
     {
         $object = $this->object;
@@ -65,13 +70,14 @@ class ObjectPreview
 
         $content = $cc->content();
         if ($object->isDisabled()) {
-            $content->add(Html::p(
+            $content->add(Html::tag(
+                'p',
                 ['class' => 'error'],
                 $this->translate('This object will not be deployed as it has been disabled')
             ));
         }
         if ($object->isExternal()) {
-            $content->add(Html::p($this->translate((
+            $content->add(Html::tag('p', null, $this->translate((
                 'This is an external object. It has been imported from Icinga 2 through the'
                 . ' Core API and cannot be managed with the Icinga Director. It is however'
                 . ' perfectly valid to create objects using this or referring to this object.'
@@ -83,7 +89,7 @@ class ObjectPreview
 
         foreach ($config->getFiles() as $filename => $file) {
             if (! $object->isExternal()) {
-                $content->add(Html::h2($filename));
+                $content->add(Html::tag('h2', null, $filename));
             }
 
             $classes = array();
@@ -93,7 +99,75 @@ class ObjectPreview
                 $classes[] = 'logfile';
             }
 
-            $content->add(Html::pre(['class' => $classes], $file->getContent()));
+            $plain = Html::wantHtml($file->getContent())->render();
+            $plain = preg_replace_callback(
+                '/^(\s+import\s+\&quot\;)(.+)(\&quot\;)/m',
+                [$this, 'linkImport'],
+                $plain
+            );
+            $plain = preg_replace_callback(
+                '/^(\s+(?:check_|event_)?command\s+=\s+\&quot\;)(.+)(\&quot\;)/m',
+                [$this, 'linkCommand'],
+                $plain
+            );
+            $plain = preg_replace_callback(
+                '/^(\s+host_name\s+=\s+\&quot\;)(.+)(\&quot\;)/m',
+                [$this, 'linkHost'],
+                $plain
+            );
+            $text = Text::create($plain)->setEscaped();
+
+            $content->add(Html::tag('pre', ['class' => $classes], $text));
         }
+    }
+
+    /**
+     * @api internal
+     * @param $match
+     * @return string
+     */
+    public function linkImport($match)
+    {
+        $blacklist = [
+            'plugin-notification-command',
+            'plugin-check-command',
+        ];
+        if (in_array($match[2], $blacklist)) {
+            return $match[1] . $match[2] . $match[3];
+        }
+
+        return $match[1] . Link::create(
+            $match[2],
+            sprintf('director/' . $this->object->getShortTableName()),
+            ['name' => $match[2]]
+        )->render() . $match[3];
+    }
+
+    /**
+     * @api internal
+     * @param $match
+     * @return string
+     */
+    public function linkCommand($match)
+    {
+        return $match[1] . Link::create(
+            $match[2],
+            sprintf('director/command'),
+            ['name' => $match[2]]
+        )->render() . $match[3];
+    }
+
+    /**
+     * @api internal
+     * @param $match
+     * @return string
+     */
+    public function linkHost($match)
+    {
+        return $match[1] . Link::create(
+            $match[2],
+            sprintf('director/host'),
+            ['name' => $match[2]]
+        )->render() . $match[3];
     }
 }

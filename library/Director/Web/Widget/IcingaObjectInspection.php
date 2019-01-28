@@ -2,7 +2,7 @@
 
 namespace Icinga\Module\Director\Web\Widget;
 
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
 use dipl\Html\Link;
 use dipl\Translation\TranslationHelper;
@@ -13,7 +13,7 @@ use Icinga\Module\Director\PlainObjectRenderer;
 use Icinga\Module\Director\Web\Table\DbHelper;
 use stdClass;
 
-class IcingaObjectInspection extends BaseElement
+class IcingaObjectInspection extends BaseHtmlElement
 {
     use DbHelper;
     use TranslationHelper;
@@ -32,20 +32,27 @@ class IcingaObjectInspection extends BaseElement
         $this->db = $db;
     }
 
+    /**
+     * @throws \Icinga\Exception\IcingaException
+     */
     protected function assemble()
     {
         $attrs = $this->object->attrs;
-        if (property_exists($attrs, 'source_location')) {
+        if (isset($attrs->source_location)) {
             $this->renderSourceLocation($attrs->source_location);
         }
-        if (property_exists($attrs, 'last_check_result')) {
+        if (isset($attrs->last_check_result)) {
             $this->renderLastCheckResult($attrs->last_check_result);
         }
 
         $this->renderObjectAttributes($attrs);
-        // $this->add(Html::pre(PlainObjectRenderer::render($this->object)));
+        // $this->add(Html::tag('pre', null, PlainObjectRenderer::render($this->object)));
     }
 
+    /**
+     * @param $result
+     * @throws \Icinga\Exception\IcingaException
+     */
     protected function renderLastCheckResult($result)
     {
         $this->add(Html::tag('h2', null, $this->translate('Last Check Result')));
@@ -55,6 +62,10 @@ class IcingaObjectInspection extends BaseElement
         }
     }
 
+    /**
+     * @param array $command
+     * @throws \Icinga\Exception\IcingaException
+     */
     protected function renderExecutedCommand(array $command)
     {
         $command = implode(' ', array_map('escapeshellarg', $command));
@@ -68,6 +79,10 @@ class IcingaObjectInspection extends BaseElement
     {
     }
 
+    /**
+     * @param $attrs
+     * @throws \Icinga\Exception\IcingaException
+     */
     protected function renderObjectAttributes($attrs)
     {
         $blacklist = [
@@ -101,6 +116,13 @@ class IcingaObjectInspection extends BaseElement
         ]);
     }
 
+    /**
+     * @param $key
+     * @param $objectName
+     * @return Link|Link[]
+     * @throws \Icinga\Exception\IcingaException
+     * @throws \Icinga\Exception\ProgrammingError
+     */
     protected function renderLinkedObject($key, $objectName)
     {
         $keys = [
@@ -124,6 +146,12 @@ class IcingaObjectInspection extends BaseElement
         }
     }
 
+    /**
+     * @param $groups
+     * @return Link[]
+     * @throws \Icinga\Exception\IcingaException
+     * @throws \Icinga\Exception\ProgrammingError
+     */
     protected function linkGroups($groups)
     {
         if ($groups === null) {
@@ -146,6 +174,10 @@ class IcingaObjectInspection extends BaseElement
         return $links;
     }
 
+    /**
+     * @param stdClass $source
+     * @throws \Icinga\Exception\IcingaException
+     */
     protected function renderSourceLocation(stdClass $source)
     {
         $findRelative = 'api/packages/director';
@@ -187,6 +219,13 @@ class IcingaObjectInspection extends BaseElement
         return $db->fetchRow($query);
     }
 
+    /**
+     * @param $deployment
+     * @param $source
+     * @return Link
+     * @throws \Icinga\Exception\IcingaException
+     * @throws \Icinga\Exception\ProgrammingError
+     */
     protected function linkToSourceLocation($deployment, $source)
     {
         $filename = $source->director_relative;

@@ -4,15 +4,15 @@ namespace dipl\Web\Table;
 
 use Icinga\Data\Db\DbConnection;
 use Icinga\Data\Filter\Filter;
-use Icinga\Exception\ProgrammingError;
 use dipl\Db\Zf1\FilterRenderer;
 use dipl\Db\Zf1\SelectPaginationAdapter;
-use dipl\Html\Container;
 use dipl\Html\DeferredText;
 use dipl\Html\Html;
 use dipl\Html\Link;
 use dipl\Web\Widget\ControlsAndContent;
 use dipl\Web\Url;
+use LogicException;
+use RuntimeException;
 use Zend_Db_Adapter_Abstract as DbAdapter;
 
 abstract class ZfQueryBasedTable extends QueryBasedTable
@@ -25,6 +25,10 @@ abstract class ZfQueryBasedTable extends QueryBasedTable
 
     private $query;
 
+    private $paginationAdapter;
+
+    private $search;
+
     public function __construct($db)
     {
         if ($db instanceof DbAdapter) {
@@ -33,10 +37,10 @@ abstract class ZfQueryBasedTable extends QueryBasedTable
             $this->connection = $db;
             $this->db = $db->getDbAdapter();
         } else {
-            throw new ProgrammingError(
+            throw new LogicException(sprintf(
                 'Unable to deal with %s db class',
                 get_class($db)
-            );
+            ));
         }
     }
 
@@ -53,7 +57,11 @@ abstract class ZfQueryBasedTable extends QueryBasedTable
 
     protected function getPaginationAdapter()
     {
-        return new SelectPaginationAdapter($this->getQuery());
+        if ($this->paginationAdapter === null) {
+            $this->paginationAdapter = new SelectPaginationAdapter($this->getQuery());
+        }
+
+        return $this->paginationAdapter;
     }
 
     public function applyFilter(Filter $filter)
@@ -62,22 +70,41 @@ abstract class ZfQueryBasedTable extends QueryBasedTable
         return $this;
     }
 
-    protected function search($search)
+    public function hasSearch()
     {
+        return $this->search !== null;
+    }
+
+    public function search($search)
+    {
+        if ($this->hasSearch()) {
+            throw new RuntimeException(
+                'It is not allowed to call search twice on this table'
+            );
+        }
         if (! empty($search)) {
+            $this->search = $search;
             $query = $this->getQuery();
             $columns = $this->getSearchColumns();
             if (strpos($search, ' ') === false) {
                 $filter = Filter::matchAny();
                 foreach ($columns as $column) {
-                    $filter->addFilter(Filter::expression($column, '=', "*$search*"));
+                    if (strpos($search, '*') === false) {
+                        $filter->addFilter(Filter::expression($column, '=', "*$search*"));
+                    } else {
+                        $filter->addFilter(Filter::expression($column, '=', $search));
+                    }
                 }
             } else {
                 $filter = Filter::matchAll();
                 foreach (explode(' ', $search) as $s) {
                     $sub = Filter::matchAny();
                     foreach ($columns as $column) {
-                        $sub->addFilter(Filter::expression($column, '=', "*$s*"));
+                        if (strpos($search, '*') === false) {
+                            $sub->addFilter(Filter::expression($column, '=', "*$s*"));
+                        } else {
+                            $sub->addFilter(Filter::expression($column, '=', $s));
+                        }
                     }
                     $filter->addFilter($sub);
                 }
@@ -119,7 +146,7 @@ abstract class ZfQueryBasedTable extends QueryBasedTable
     public function dumpSqlQuery(Url $url)
     {
         $self = $this;
-        return Container::create(['class' => 'sql-dump'], [
+        return Html::tag('div', ['class' => 'sql-dump'], [
             Link::create('[ close ]', $url->without('format')),
             Html::tag('h3', null, $this->translate('SQL Query')),
             Html::tag('pre', null, new DeferredText(

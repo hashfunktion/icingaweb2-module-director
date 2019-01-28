@@ -5,7 +5,7 @@ namespace dipl\Html;
 use dipl\Web\Url;
 use Icinga\Web\Url as WebUrl;
 
-class Link extends BaseElement
+class Link extends BaseHtmlElement
 {
     protected $tag = 'a';
 
@@ -23,7 +23,7 @@ class Link extends BaseElement
     {
         $this->setContent($content);
         $this->setAttributes($attributes);
-        $this->attributes()->registerCallbackFor('href', array($this, 'getHrefAttribute'));
+        $this->getAttributes()->registerAttributeCallback('href', array($this, 'getHrefAttribute'));
         $this->setUrl($url, $urlParams);
     }
 

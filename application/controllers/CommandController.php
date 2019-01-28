@@ -2,13 +2,20 @@
 
 namespace Icinga\Module\Director\Controllers;
 
+use dipl\Html\Html;
 use Icinga\Module\Director\Forms\IcingaCommandArgumentForm;
 use Icinga\Module\Director\Objects\IcingaCommand;
+use Icinga\Module\Director\Resolver\CommandUsage;
 use Icinga\Module\Director\Web\Controller\ObjectController;
 use Icinga\Module\Director\Web\Table\IcingaCommandArgumentTable;
 
 class CommandController extends ObjectController
 {
+    /**
+     * @throws \Icinga\Exception\AuthenticationException
+     * @throws \Icinga\Exception\NotFoundError
+     * @throws \Icinga\Security\SecurityException
+     */
     public function init()
     {
         parent::init();
@@ -19,6 +26,57 @@ class CommandController extends ObjectController
                 'urlParams' => ['name' => $o->getObjectName()],
                 'label'     => 'Arguments'
             ]);
+        }
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     * @throws \Zend_Db_Select_Exception
+     */
+    public function indexAction()
+    {
+        if (! $this->getRequest()->isApiRequest()) {
+            $this->showUsage();
+        }
+        parent::indexAction();
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     * @throws \Icinga\Security\SecurityException
+     * @throws \Zend_Db_Select_Exception
+     */
+    public function renderAction()
+    {
+        if ($this->object->isExternal()) {
+            $this->showUsage();
+        }
+
+        parent::renderAction();
+    }
+
+    /**
+     * @throws \Zend_Db_Select_Exception
+     */
+    protected function showUsage()
+    {
+        /** @var IcingaCommand $command */
+        $command = $this->object;
+        if ($command->isInUse()) {
+            $usage = new CommandUsage($command);
+            $this->content()->add(Html::tag('p', [
+                'class' => 'information',
+                'data-base-target' => '_next'
+            ], Html::sprintf(
+                $this->translate('This Command is currently being used by %s'),
+                Html::tag('span', null, $usage->getLinks())->setSeparator(', ')
+            )));
+        } else {
+            $this->content()->add(Html::tag(
+                'p',
+                ['class' => 'warning'],
+                $this->translate('This Command is currently not in use')
+            ));
         }
     }
 
@@ -39,5 +97,10 @@ class CommandController extends ObjectController
         $form->handleRequest();
         $this->content()->add([$form]);
         IcingaCommandArgumentTable::create($o)->renderTo($this);
+    }
+
+    protected function hasBasketSupport()
+    {
+        return ! $this->object->isExternal();
     }
 }

@@ -2,9 +2,10 @@
 
 namespace Icinga\Module\Director\Repository;
 
-use Icinga\Exception\ProgrammingError;
+use Icinga\Authentication\Auth;
 use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Objects\IcingaObject;
+use RuntimeException;
 
 trait RepositoryByObjectHelper
 {
@@ -12,6 +13,9 @@ trait RepositoryByObjectHelper
 
     /** @var Db */
     protected $connection;
+
+    /** @var Auth */
+    protected static $auth;
 
     /** @var static[] */
     protected static $instances = [];
@@ -23,13 +27,22 @@ trait RepositoryByObjectHelper
     }
 
     /**
-     * @param $type
+     * @param string $type
+     * @return bool
+     */
+    public static function hasInstanceForType($type)
+    {
+        return array_key_exists($type, self::$instances);
+    }
+
+    /**
+     * @param string $type
      * @param Db $connection
      * @return static
      */
     public static function instanceByType($type, Db $connection)
     {
-        if (!array_key_exists($type, self::$instances)) {
+        if (! static::hasInstanceForType($type)) {
             self::$instances[$type] = new static($type, $connection);
         }
 
@@ -38,9 +51,17 @@ trait RepositoryByObjectHelper
 
     /**
      * @param IcingaObject $object
+     * @return bool
+     */
+    public static function hasInstanceForObject(IcingaObject $object)
+    {
+        return static::hasInstanceForType($object->getShortTableName());
+    }
+
+    /**
+     * @param IcingaObject $object
      * @param Db|null $connection
      * @return static
-     * @throws ProgrammingError
      */
     public static function instanceByObject(IcingaObject $object, Db $connection = null)
     {
@@ -49,16 +70,30 @@ trait RepositoryByObjectHelper
         }
 
         if (! $connection) {
-            throw new ProgrammingError(
+            throw new RuntimeException(sprintf(
                 'Cannot use repository for %s "%s" as it has no DB connection',
                 $object->getShortTableName(),
                 $object->getObjectName()
-            );
+            ));
         }
 
         return static::instanceByType(
             $object->getShortTableName(),
             $connection
         );
+    }
+
+    protected static function auth()
+    {
+        if (self::$auth === null) {
+            self::$auth = Auth::getInstance();
+        }
+
+        return self::$auth;
+    }
+
+    protected static function clearInstances()
+    {
+        self::$instances = [];
     }
 }

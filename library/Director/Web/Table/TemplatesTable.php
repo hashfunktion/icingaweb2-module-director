@@ -2,6 +2,7 @@
 
 namespace Icinga\Module\Director\Web\Table;
 
+use dipl\Web\Table\Extension\MultiSelect;
 use Icinga\Authentication\Auth;
 use Icinga\Data\Filter\Filter;
 use Icinga\Module\Director\Db;
@@ -15,8 +16,10 @@ use dipl\Web\Table\ZfQueryBasedTable;
 use dipl\Web\Url;
 use Zend_Db_Select as ZfSelect;
 
-class TemplatesTable extends ZfQueryBasedTable
+class TemplatesTable extends ZfQueryBasedTable implements FilterableByUsage
 {
+    use MultiSelect;
+
     protected $searchColumns = ['o.object_name'];
 
     private $type;
@@ -26,6 +29,16 @@ class TemplatesTable extends ZfQueryBasedTable
         $table = new static($db);
         $table->type = strtolower($type);
         return $table;
+    }
+
+    protected function assemble()
+    {
+        $type = $this->type;
+        $this->enableMultiSelect(
+            "director/${type}s/edittemplates",
+            "director/${type}template",
+            ['name']
+        );
     }
 
     public function getType()
@@ -81,6 +94,24 @@ class TemplatesTable extends ZfQueryBasedTable
         );
 
         return $this;
+    }
+
+    public function showOnlyUsed()
+    {
+        $type = $this->getType();
+        $this->getQuery()->where(
+            "(EXISTS (SELECT ${type}_id FROM icinga_${type}_inheritance"
+            . " WHERE parent_${type}_id = o.id))"
+        );
+    }
+
+    public function showOnlyUnUsed()
+    {
+        $type = $this->getType();
+        $this->getQuery()->where(
+            "(NOT EXISTS (SELECT ${type}_id FROM icinga_${type}_inheritance"
+            . " WHERE parent_${type}_id = o.id))"
+        );
     }
 
     protected function applyRestrictions(ZfSelect $query)

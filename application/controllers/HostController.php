@@ -2,6 +2,9 @@
 
 namespace Icinga\Module\Director\Controllers;
 
+use dipl\Html\Html;
+use dipl\Html\Link;
+use dipl\Web\Url;
 use Exception;
 use Icinga\Module\Director\CustomVariable\CustomVariableDictionary;
 use Icinga\Module\Director\Db\AppliedServiceSetLoader;
@@ -19,8 +22,7 @@ use Icinga\Module\Director\Web\Table\IcingaHostAppliedForServiceTable;
 use Icinga\Module\Director\Web\Table\IcingaHostAppliedServicesTable;
 use Icinga\Module\Director\Web\Table\IcingaHostServiceTable;
 use Icinga\Module\Director\Web\Table\IcingaServiceSetServiceTable;
-use Icinga\Web\Url;
-use dipl\Html\Link;
+use Icinga\Module\Director\Web\Widget\HostServiceRedirector;
 
 class HostController extends ObjectController
 {
@@ -29,6 +31,9 @@ class HostController extends ObjectController
         $this->assertPermission('director/hosts');
     }
 
+    /**
+     * @return HostgroupRestriction
+     */
     protected function getHostgroupRestriction()
     {
         return new HostgroupRestriction($this->db(), $this->Auth());
@@ -85,6 +90,36 @@ class HostController extends ObjectController
         ));
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public function findserviceAction()
+    {
+        $host = $this->getHostObject();
+        $redirector = new HostServiceRedirector($host);
+        $this->redirectNow(
+            $redirector->getRedirectionUrl($this->params->get('service'))
+        );
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public function invalidserviceAction()
+    {
+        $this->content()->add(
+            Html::tag('p', ['class' => 'error'], sprintf(
+                $this->translate('No such service: %s'),
+                $this->params->get('service')
+            ))
+        );
+
+        $this->servicesAction();
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function servicesAction()
     {
         $this->addServicesHeader();
@@ -149,6 +184,10 @@ class HostController extends ObjectController
         }
     }
 
+    /**
+     * @param IcingaHost $host
+     * @param IcingaHost|null $affectedHost
+     */
     protected function addHostServiceSetTables(IcingaHost $host, IcingaHost $affectedHost = null)
     {
         $db = $this->db();
@@ -183,6 +222,9 @@ class HostController extends ObjectController
         }
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function appliedserviceAction()
     {
         $db = $this->db();
@@ -216,6 +258,9 @@ class HostController extends ObjectController
         $this->commonForServices();
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function inheritedserviceAction()
     {
         $db = $this->db();
@@ -252,6 +297,9 @@ class HostController extends ObjectController
         $this->commonForServices();
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function removesetAction()
     {
         // TODO: clean this up, use POST
@@ -276,18 +324,31 @@ class HostController extends ObjectController
         );
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function servicesetserviceAction()
     {
         $db = $this->db();
         $host = $this->getHostObject();
         $serviceName = $this->params->get('service');
-        $set = IcingaServiceSet::load($this->params->get('set'), $db);
+        $setParams = [
+            'object_name' => $this->params->get('set'),
+            'host_id'     => $host->get('id')
+        ];
+        $setTemplate = IcingaServiceSet::load($this->params->get('set'), $db);
+        if (IcingaServiceSet::exists($setParams, $db)) {
+            $set = IcingaServiceSet::load($setParams, $db);
+        } else {
+            $set = $setTemplate;
+        }
 
         $service = IcingaService::load([
             'object_name'    => $serviceName,
-            'service_set_id' => $set->get('id')
+            'service_set_id' => $setTemplate->get('id')
         ], $this->db());
         $service = IcingaService::create([
+            'id'          => $service->get('id'),
             'object_type' => 'apply',
             'object_name' => $serviceName,
             'host_id'     => $host->get('id'),
@@ -326,6 +387,9 @@ class HostController extends ObjectController
         $this->tabs()->activate('services');
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function agentAction()
     {
         $selfService = new SelfService($this->getHostObject(), $this->api());

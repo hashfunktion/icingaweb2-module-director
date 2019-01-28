@@ -5,11 +5,11 @@ namespace Icinga\Module\Director\Web\Form\IplElement;
 use Icinga\Exception\ProgrammingError;
 use Icinga\Module\Director\IcingaConfig\ExtensibleSet as Set;
 use Icinga\Module\Director\Web\Form\IconHelper;
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
 use dipl\Translation\TranslationHelper;
 
-class ExtensibleSetElement extends BaseElement
+class ExtensibleSetElement extends BaseHtmlElement
 {
     use TranslationHelper;
 
@@ -194,23 +194,19 @@ class ExtensibleSetElement extends BaseElement
         $this->addAddMore();
 
         if ($this->isSorted()) {
-            $this->attributes()->add('class', 'sortable');
+            $this->getAttributes()->add('class', 'sortable');
         }
         if (null !== $this->description) {
             $this->addDescription($this->description);
         }
     }
 
-    private function eventuallyAddAutosuggestion(BaseElement $element)
+    private function eventuallyAddAutosuggestion(BaseHtmlElement $element)
     {
         if ($this->suggestionContext !== null) {
-            $attrs = $element->attributes();
+            $attrs = $element->getAttributes();
             $attrs->add('class', 'director-suggest');
             $attrs->set([
-                'autocomplete'   => 'off',
-                'autocorrect'    => 'off',
-                'autocapitalize' => 'off',
-                'spellcheck'     => 'false',
                 'data-suggestion-context' => $this->suggestionContext,
             ]);
         }
@@ -270,7 +266,7 @@ class ExtensibleSetElement extends BaseElement
             )
         );
         if ($cnt !== 0) { // TODO: was === 0?!
-            $field->attributes()->add('class', 'extend-set');
+            $field->getAttributes()->add('class', 'extend-set');
         }
 
         if ($this->suggestionContext === null) {
@@ -324,7 +320,7 @@ class ExtensibleSetElement extends BaseElement
                 'id' => $this->id . $this->suffix($this->chosenOptionCount),
                 'value' => $val
             ]);
-            $text->attributes()->set([
+            $text->getAttributes()->set([
                 'autocomplete'   => 'off',
                 'autocorrect'    => 'off',
                 'autocapitalize' => 'off',
@@ -340,16 +336,16 @@ class ExtensibleSetElement extends BaseElement
         }
     }
 
-    private function addRemainingAttributes(BaseElement $element)
+    private function addRemainingAttributes(BaseHtmlElement $element)
     {
         if ($this->remainingAttribs !== null) {
-            $element->attributes()->add($this->remainingAttribs);
+            $element->getAttributes()->add($this->remainingAttribs);
         }
 
         return $element;
     }
 
-    private function eventuallyDisable(BaseElement $element)
+    private function eventuallyDisable(BaseHtmlElement $element)
     {
         if ($this->isDisabled()) {
             $this->disableElement($element);
@@ -358,13 +354,13 @@ class ExtensibleSetElement extends BaseElement
         return $element;
     }
 
-    private function disableElement(BaseElement $element)
+    private function disableElement(BaseHtmlElement $element)
     {
-        $element->attributes()->set('disabled', 'disabled');
+        $element->getAttributes()->set('disabled', 'disabled');
         return $element;
     }
 
-    private function disableIf(BaseElement $element, $condition)
+    private function disableIf(BaseHtmlElement $element, $condition)
     {
         if ($condition) {
             $this->disableElement($element);

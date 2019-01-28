@@ -4,41 +4,196 @@
 Please make sure to always read our [Upgrading](05-Upgrading.md) documentation
 before switching to a new version.
 
+1.6.1 (unreleased)
+------------------
+### Fixed issues
+* You can find issues and feature requests related to this release on our
+  [roadmap](https://github.com/Icinga/icingaweb2-module-director/milestone/19?closed=1)
+
+### User Interface
+* FIX: restoring a basket fails when there is only one configured DB (#1716)
+* FIX: creating a new Basket with a "Custom Selection" failed with an error (#1733)
+* FIX: some new reserved keywords are now escaped correctly (#1765)
+
+1.6.0
+-----
+### Fixed issues
+* You can find issues and feature requests related to this release on our
+  [roadmap](https://github.com/Icinga/icingaweb2-module-director/milestone/15?closed=1)
+
+### User Interface
+* FIX: link startup log warning even for non-standard package names (#1633)
+* FIX: searching for fields assigned to a template was broken (#1670)
+* FIX: changing an argument type from String to DSL didn't work (#1640)
+* FIX: incorrect links from template-tree to non-template commands (#1544)
+* FIX: drop useless object-type field for Time Periods (#788)
+* FIX: clean up naming for some tabs (#1312)
+* FIX: "remove" now removes the correct Service Set on a Host (#1619)
+* FIX: do not fail when "inspecting" a pending service (#1641)
+* FIX: a problem when selecting multiple host has been fixed (#1647)
+* FIX: allow to remove renamed Service Sets (#1664)
+* FIX: resolved a side-effect triggered by hooked Custom Fields (#1667)
+* FIX: config diff URL behavior has been corrected (#1704)
+* FEATURE: allow to filter templates by usage (#1339)
+* FEATURE: allow to show SQL used for template tables
+* FEATURE: allow to defined Service Groups for Set members and for Services
+  assigned to Host Templates (#619)
+* FEATURE: it's now possible to choose another target Service Set when cloning
+  a member service (#886)
+* FEATURE: Configuration Baskets with snapshot/import/export capabilities (#1630)
+* FEATURE: Allow to clone a Service from one Set to another one (#886)
+* FEATURE: form descriptions are now shown directly below the field, reverting
+  a change from v1.4.0 (#1510)
+* FEATURE: show sub-sets in Config Preview (#1623)
+* FEATURE: show live Health-Check in the frontend (#1669)
+
+### Import and Sync
+* FIX: Core Api imports flapping only for 2.8+ (#1652) 
+* FEATURE: new Property Modifier allows to extract specific Array values (#473)
+
+### CLI
+* FIX: Director Health Check no longer warns about no Imports/Syncs/Jobs (#1607)
+* FEATURE: It's now possible to dump data as fetched by an Import Source (#1626)
+* FEATURE: CLI implementation for Configuration Basket features (#1630)
+* FEATURE: allow to append to or remove from array properties (#1666)
+
+### Icinga Configuration
+* FIX: rendering of disabled objects containing `*/` has been fixed (#1263)
+* FEATURE: support for Timeperiod include/exclude (#1639)
+* FEATURE: improve legacy v1.x configuration rendering (#1624)
+
+### Icinga API
+* FIX: ship workarounds for issues with specific Icinga 2 versions
+* FIX: clean up deployed incomplete stages lost by Icinga (#1696)
+* FEATURE: allow to behave differently based on Icinga 2 version (#1695)
+
+### Icinga Agent handling
+* FEATURE: ship latest PowerShell module (#1632)
+* FIX: PowerShell module runs in FIPS enforced mode (#1274)
+
+### DB Schema
+* FIX: enforce strict object_name uniqueness on commands (#1496)
+
+### Documentation
+* FEATURE: improve installation docs, fix URLs (#1656, #1655)
+
+
+1.5.2
+-----
+### Fixed issues
+* You can find issues and feature requests related to this release on our
+  [roadmap](https://github.com/Icinga/icingaweb2-module-director/milestone/17?closed=1)
+
+### Configuration rendering
+* FIX: Fix compatibility with Icinga v2.6, got broken with v1.5.0 (#1614)
+
+### REST API
+* FIX: No more invalid JSON in some special circumstances (#1314)
+
+### User Interface
+* FIX: Hostgroup assignment cache has been fixed (#1574, #1618)
+
+### DB Schema
+* FIX: missing user/timeperiod constraint. We usually do not touch the schema
+  in minor versions, this has been cherry-picked by accident. However, don't
+  worry - the migration has been tested intensively.
+
+1.5.1
+-----
+### Fixed issues
+* You can find issues and feature requests related to this release on our
+  [roadmap](https://github.com/Icinga/icingaweb2-module-director/milestone/16?closed=1)
+
+### Icinga Configuration
+* FIX: Switched Variable-Override related constant names broke the feature (#1601)
+
+### User Interface
+* FIX: Custom Fields attached to a Service Template have not been shown for Apply
+  Rules whose name matched the Template Name (#1602)
+
+### Import and Sync
+* FIX: There was an issue with specific binary checksums on MySQL (#1556)
+
 1.5.0
 -----
 ### Fixed issues
 * You can find issues and feature requests related to this release on our
   [roadmap](https://github.com/Icinga/icingaweb2-module-director/milestone/11?closed=1)
 
+### Security Fixes
+* FIX: users with `director/audit` permission had the possibility to inject SQL.
+  Thanks to Boyd Ansems for reporting this.
+
 ### Permissions and Restrictions
 * FEATURE: Showing the executed SQL query now requires the `showsql` permission
 * FEATURE: Grant access to Service Set in a controlled way
 * FIX: do not allow a user to create hosts he wouldn't be allowed to see #1451
+* FIX: Hostgroup-based restrictions worked fine when applied, bug was buggy in
+  combination with directly assigned or inherited groups (#1464)
+
+### Icinga Configuration
+* FEATURE: Add 'is false (or not set)' condition for apply rules (#1436)
+* FEATURE: support flapping settings for Icinga &gt;= 2.8.0 (#330)
+* FEATURE: include all itl packages in Linux Agent sample config (#1450)
+* FEATURE: it's now possible to blacklist inherited or applied Services on
+  single hosts (#907)
+* FEATURE: timestamped startup log rendering for upcoming Icinga v2.9.0 (#1478)
+* FEATURE: allow to switch between multiple Director databases (#1498)
+* FEATURE: it's now possible to specify Zones for UserGroups (#1163)
+* FEATURE: dependencies are no longer considered experimental
 
 ### User Interface
 * FEATURE: Admins have now access to JSON download links in many places
 * FEATURE: Users equipped with related permissions can toggle "Show SQL" in the GUI
 * FEATURE: A Service Set can now be assigned to multiple hosts at once #1281
+* FEATURE: Commands can now be filtered by usage (#1480)
+* FEATURE: Show usage of Commands over templates and objects (#335)
+* FEATURE: Allow horizontal size increase of Import Source DB Query field (#299)
+* FEATURE: Small UI improvements like #1308
+* FEATURE: Data Lists can be chosen by name in Sync rules (#1048)
+* FEATURE: Inspect feature got refactored, also for Services (#264, #689, #1396, #1397)
+* FEATURE: The "Modify" hook is now available for Services (#689), regardless
+  of whether they have been directly assigned, inherited or applied
+* FEATURE: Config preview links imports, hosts and commands to related objects (#1521)
+* FEATURE: German translation has been refreshed (#1599)
+* FEATURE: Apply Rule editor shows suggestions for Data-List vars (#1588)
+* FIX: Don't suggest Command templates where Commands are required (#1414)
+* FIX: Do not allow to delete Commands being used by other objects (#1443)
+* FIX: Show 'Inspect' tab only for Endpoints with an ApiUser (#1293)
+* FIX: It's now possible to specify TimePeriods for single Users #944
+* FIX: Redirect after not modifying a Command Argument failed on some RHEL 7
+  setups (#1512)
+* FIX: click on Service Set titles no longer removes them from their host (#1560)
+* FIX: Restoring objects based on compound keys has been fixed (#1597)
+* FIX: Linux Agent kickstart script improved and tweaked for Icinga 2.9 (#1596)
 
 ### CLI
 * FEATURE: Director Health Check Plugin (#1278)
+* FEATURE: Show and trigger Import Sources (#1474)
+* FEATURE: Show and trigger Sync Rules ( #1476)
 
 ### Import and Sync
 * FIX: Sync is very powerful and allows for actions not available in the GUI. It
   however allowed to store invalid single Service Objects with no Host. This is
   now illegal, as it never makes any sense
+* FIX: Performance boost for "purge" on older MySQL/MariaDB systems (#1475)
 * FEATURE: new Property Modifier for IPs formatted as number in Excel files (#1296)
 * FEATURE: new Property Modifier to url-encode values
 * FEATURE: new Property Modifier: uppercase the first character of each word
 * FEATURE: Kickstart Helper now also imports Event Commands (#1389)
+* FEATURE: Preserve _override_servicevars on sync, even when replacing vars (#1307)
 
 ### Internals
+* FIX: problems related to users working from different time zones have been
+  fixed (#1270, #1332)
 * FEATURE: Html/Attribute now allows boolean properties
 * FEATURE: Html/Attribute allows colons in attribute names (required for SVGs)
-
-### Icinga Configuration
-* FEATURE: support flapping settings for Icinga &gt;= 2.8.0 (#330)
-* FEATURE: include all itl packages in Linux Agent sample config (#1450)
+* FEATURE: Html/Attributes can be prefixed (helps with data-*)
+* FEATURE: Html/Img data:-urls are now supported
+* FEATURE: ipl has been aligned with the upcoming ipl-html library
+* FEATURE: Director now supports multiple Databases, allows to switch between
+  them and to deploy different Config Packages. Other features based on this
+  combined with related documentation will follow.
 
 1.4.3
 -----

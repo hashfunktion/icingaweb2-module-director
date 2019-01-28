@@ -26,18 +26,25 @@ class KickstartForm extends DirectorForm
     /** @var IcingaEndpoint */
     private $endpoint;
 
+    private $dbResourceName;
+
+    /**
+     * @throws \Zend_Form_Exception
+     */
     public function setup()
     {
         $this->storeConfigLabel = $this->translate('Store configuration');
         $this->createDbLabel    = $this->translate('Create database schema');
         $this->migrateDbLabel   = $this->translate('Apply schema migrations');
 
-        $this->addResourceConfigElements();
-        $this->addResourceDisplayGroup();
+        if ($this->dbResourceName === null) {
+            $this->addResourceConfigElements();
+            $this->addResourceDisplayGroup();
 
-        if (!$this->config()->get('db', 'resource')
-            || ($this->config()->get('db', 'resource') !== $this->getResourceName())) {
-            return;
+            if (!$this->config()->get('db', 'resource')
+                || ($this->config()->get('db', 'resource') !== $this->getResourceName())) {
+                return;
+            }
         }
 
         if (!$this->migrations()->hasSchema()) {
@@ -178,6 +185,9 @@ class KickstartForm extends DirectorForm
         $this->setSubmitLabel($this->translate('Run import'));
     }
 
+    /**
+     * @throws \Icinga\Exception\ConfigurationError
+     */
     protected function onSetup()
     {
         if ($this->hasBeenSubmitted()) {
@@ -212,6 +222,9 @@ class KickstartForm extends DirectorForm
         }
     }
 
+    /**
+     * @throws \Zend_Form_Exception
+     */
     protected function addResourceConfigElements()
     {
         $config = $this->config();
@@ -251,8 +264,15 @@ class KickstartForm extends DirectorForm
         $this->setSubmitLabel($this->storeConfigLabel);
     }
 
+    /**
+     * @throws \Zend_Form_Exception
+     */
     protected function addResourceDisplayGroup()
     {
+        if ($this->dbResourceName !== null) {
+            return;
+        }
+
         $elements = array(
             'HINT_no_resource',
             'resource',
@@ -273,6 +293,9 @@ class KickstartForm extends DirectorForm
         ));
     }
 
+    /**
+     * @throws \Zend_Form_Exception
+     */
     protected function addKickstartDisplayGroup()
     {
         $elements = array(
@@ -290,6 +313,10 @@ class KickstartForm extends DirectorForm
         ));
     }
 
+    /**
+     * @return bool
+     * @throws \Zend_Form_Exception
+     */
     protected function storeResourceConfig()
     {
         $config = $this->config();
@@ -332,6 +359,10 @@ class KickstartForm extends DirectorForm
         return $this;
     }
 
+    /**
+     * @throws \Icinga\Exception\ProgrammingError
+     * @throws \Zend_Form_Exception
+     */
     public function onSuccess()
     {
         if ($this->getSubmitLabel() === $this->storeConfigLabel) {
@@ -360,8 +391,19 @@ class KickstartForm extends DirectorForm
         parent::onSuccess();
     }
 
+    public function setDbResourceName($name)
+    {
+        $this->dbResourceName = $name;
+
+        return $this;
+    }
+
     protected function getResourceName()
     {
+        if ($this->dbResourceName !== null) {
+            return $this->dbResourceName;
+        }
+
         if ($this->hasBeenSent()) {
             $resource = $this->getSentValue('resource');
             $resources = $this->enumResources();
@@ -385,6 +427,9 @@ class KickstartForm extends DirectorForm
         return ResourceFactory::create($this->getResourceName());
     }
 
+    /**
+     * @return Migrations
+     */
     protected function migrations()
     {
         return new Migrations($this->getDb());

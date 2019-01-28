@@ -5,6 +5,7 @@ namespace Icinga\Module\Director\Controllers;
 use Exception;
 use Icinga\Module\Director\Db\Migrations;
 use Icinga\Module\Director\Forms\ApplyMigrationsForm;
+use Icinga\Module\Director\Forms\KickstartForm;
 
 class IndexController extends DashboardController
 {
@@ -19,9 +20,6 @@ class IndexController extends DashboardController
                 if (!$this->hasDeploymentEndpoint()) {
                     $this->showKickstartForm(false);
                 }
-            } else {
-                $this->showKickstartForm();
-                return;
             }
 
             if ($migrations->hasPendingMigrations()) {
@@ -44,9 +42,11 @@ class IndexController extends DashboardController
             $this->addSingleTab($this->translate('Kickstart'));
         }
 
-        $this->content()->prepend(
-            $this->loadForm('kickstart')->handleRequest()
-        );
+        $form = KickstartForm::load();
+        if ($name = $this->getPreferredDbResourceName()) {
+            $form->setDbResourceName($name);
+        }
+        $this->content()->prepend($form->handleRequest());
     }
 
     protected function hasDeploymentEndpoint()

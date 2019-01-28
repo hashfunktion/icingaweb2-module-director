@@ -2,16 +2,18 @@
 
 namespace dipl\Html;
 
-use Icinga\Exception\IcingaException;
-use Icinga\Exception\ProgrammingError;
+use InvalidArgumentException;
 
 class Attributes
 {
     /** @var Attribute[] */
-    protected $attributes = array();
+    protected $attributes = [];
 
-    /** @var callable */
-    protected $callbacks = array();
+    /** @var callable[] */
+    protected $callbacks = [];
+
+    /** @var callable[] */
+    protected $setterCallbacks = [];
 
     /** @var string */
     protected $prefix = '';
@@ -19,6 +21,7 @@ class Attributes
     /**
      * Attributes constructor.
      * @param Attribute[] $attributes
+     * @throws InvalidArgumentException
      */
     public function __construct(array $attributes = null)
     {
@@ -40,6 +43,7 @@ class Attributes
     /**
      * @param Attribute[] $attributes
      * @return static
+     * @throws InvalidArgumentException
      */
     public static function create(array $attributes = null)
     {
@@ -49,7 +53,7 @@ class Attributes
     /**
      * @param Attributes|array|null $attributes
      * @return Attributes
-     * @throws IcingaException
+     * @throws InvalidArgumentException
      */
     public static function wantAttributes($attributes)
     {
@@ -64,10 +68,10 @@ class Attributes
 
                 return $self;
             } elseif ($attributes !== null) {
-                throw new IcingaException(
+                throw new InvalidArgumentException(sprintf(
                     'Attributes, Array or Null expected, got %s',
-                    Util::getPhpTypeName($attributes)
-                );
+                    Html::getPhpTypeName($attributes)
+                ));
             }
             return $self;
         }
@@ -85,10 +89,12 @@ class Attributes
      * @param Attribute|string $attribute
      * @param string|array $value
      * @return $this
+     * @throws InvalidArgumentException
      */
     public function add($attribute, $value = null)
     {
-        if ($attribute instanceof static) {
+        // TODO: do not allow Attribute and Attributes
+        if ($attribute instanceof Attributes) {
             foreach ($attribute->getAttributes() as $a) {
                 $this->add($a);
             }
@@ -99,16 +105,22 @@ class Attributes
                 $this->add($name, $value);
             }
         } else {
-            $this->addAttribute(Attribute::create($attribute, $value));
+            if (array_key_exists($attribute, $this->setterCallbacks)) {
+                $callback = $this->setterCallbacks[$attribute];
+                $callback($value);
+            } else {
+                $this->addAttribute(Attribute::create($attribute, $value));
+            }
         }
 
         return $this;
     }
 
     /**
-     * @param Attribute|string|array $attribute
+     * @param Attribute|array|string $attribute
      * @param string|array $value
      * @return $this
+     * @throws InvalidArgumentException
      */
     public function set($attribute, $value = null)
     {
@@ -127,13 +139,21 @@ class Attributes
 
             return $this;
         } else {
-            return $this->setAttribute(new Attribute($attribute, $value));
+            if (array_key_exists($attribute, $this->setterCallbacks)) {
+                $callback = $this->setterCallbacks[$attribute];
+                $callback($value);
+
+                return $this;
+            } else {
+                return $this->setAttribute(new Attribute($attribute, $value));
+            }
         }
     }
 
     /**
      * @param $name
      * @return Attribute
+     * @throws InvalidArgumentException
      */
     public function get($name)
     {
@@ -146,13 +166,15 @@ class Attributes
 
     /**
      * @param $name
-     * @return bool
+     * @return Attribute|false
      */
-    public function delete($name)
+    public function remove($name)
     {
         if ($this->has($name)) {
+            $attribute = $this->attributes[$name];
             unset($this->attributes[$name]);
-            return true;
+
+            return $attribute;
         } else {
             return false;
         }
@@ -197,40 +219,52 @@ class Attributes
     /**
      * Callback must return an instance of Attribute
      *
+     * TODO: setCallback
+     *
      * @param string $name
      * @param callable $callback
+     * @param callable $setterCallback
      * @return $this
-     * @throws ProgrammingError
+     * @throws InvalidArgumentException
      */
-    public function registerCallbackFor($name, $callback)
+    public function registerAttributeCallback($name, $callback, $setterCallback = null)
     {
-        if (! is_callable($callback)) {
-            throw new ProgrammingError('registerCallBack expects a callable callback');
+        if ($callback !== null) {
+            if (! is_callable($callback)) {
+                throw new InvalidArgumentException(__METHOD__ . ' expects a callable callback');
+            }
+            $this->callbacks[$name] = $callback;
         }
-        $this->callbacks[$name] = $callback;
+
+        if ($setterCallback !== null) {
+            if (! is_callable($setterCallback)) {
+                throw new InvalidArgumentException(__METHOD__ . ' expects a callable setterCallback');
+            }
+            $this->setterCallbacks[$name] = $setterCallback;
+        }
+
         return $this;
     }
 
     /**
-     * @inheritdoc
+     * @return string
+     * @throws InvalidArgumentException
      */
     public function render()
     {
-        if (empty($this->attributes) && empty($this->callbacks)) {
-            return '';
-        }
-
-        $parts = array();
+        $parts = [];
         foreach ($this->callbacks as $name => $callback) {
             $attribute = call_user_func($callback);
             if ($attribute instanceof Attribute) {
-                $parts[] = $attribute->render();
+                if ($attribute->getValue() !== null) {
+                    $parts[] = $attribute->render();
+                }
             } elseif (is_string($attribute)) {
                 $parts[] = Attribute::create($name, $attribute)->render();
             } elseif (null === $attribute) {
                 continue;
             } else {
-                throw new ProgrammingError(
+                throw new InvalidArgumentException(
                     'A registered attribute callback must return string, null'
                     . ' or an Attribute'
                 );
@@ -243,6 +277,10 @@ class Attributes
             }
 
             $parts[] = $attribute->render();
+        }
+
+        if (empty($parts)) {
+            return '';
         }
 
         $separator = ' ' . $this->prefix;

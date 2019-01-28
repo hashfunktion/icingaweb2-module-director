@@ -3,7 +3,7 @@
 namespace Icinga\Module\Director\Web\Table;
 
 use Icinga\Module\Director\Util;
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Link;
 use dipl\Web\Table\ZfQueryBasedTable;
 
@@ -19,22 +19,22 @@ class ActivityLogTable extends ZfQueryBasedTable
 
     protected $hasObjectFilter = false;
 
-    /** @var BaseElement */
+    /** @var BaseHtmlElement */
     protected $currentHead;
 
-    /** @var BaseElement */
+    /** @var BaseHtmlElement */
     protected $currentBody;
 
     protected $searchColumns = array(
         'author',
         'object_name',
         'object_type',
-        'action_name',
+        'action',
     );
 
     public function assemble()
     {
-        $this->attributes()->add('class', 'activity-log');
+        $this->getAttributes()->add('class', 'activity-log');
     }
 
     public function setLastDeployedId($id)
@@ -109,6 +109,19 @@ class ActivityLogTable extends ZfQueryBasedTable
         $this->hasObjectFilter = true;
         $this->filters[] = ['l.object_type = ?', $type];
         $this->filters[] = ['l.object_name = ?', $name];
+
+        return $this;
+    }
+
+    public function filterHost($name)
+    {
+        $db = $this->db();
+        $filter = '%"host":' . json_encode($name) . '%';
+        $this->filters[] = ['('
+            . $db->quoteInto('l.old_properties LIKE ?', $filter)
+            . ' OR '
+            . $db->quoteInto('l.new_properties LIKE ?', $filter)
+            . ')', null];
 
         return $this;
     }

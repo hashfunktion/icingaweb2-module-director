@@ -2,11 +2,15 @@
 
 namespace Icinga\Module\Director;
 
+use DateTime;
+use DateTimeZone;
+use Exception;
+use Icinga\Data\ResourceFactory;
+use Icinga\Exception\ConfigurationError;
 use Icinga\Module\Director\Data\Db\DbConnection;
 use Icinga\Module\Director\Objects\IcingaEndpoint;
 use Icinga\Module\Director\Objects\IcingaObject;
-use Icinga\Exception\ConfigurationError;
-use Zend_Db_Expr;
+use RuntimeException;
 use Zend_Db_Select;
 
 class Db extends DbConnection
@@ -24,6 +28,72 @@ class Db extends DbConnection
     protected function db()
     {
         return $this->getDbAdapter();
+    }
+
+    /**
+     * @param $callable
+     * @return $this
+     * @throws Exception
+     */
+    public function runFailSafeTransaction($callable)
+    {
+        if (! is_callable($callable)) {
+            throw new RuntimeException(__METHOD__ . ' needs a Callable');
+        }
+
+        $db = $this->db();
+        $db->beginTransaction();
+        try {
+            $callable();
+            $db->commit();
+        } catch (Exception $e) {
+            try {
+                $db->rollback();
+            } catch (Exception $e) {
+                // Well... there is nothing we can do here.
+            }
+            throw $e;
+        }
+
+        return $this;
+    }
+
+    public static function fromResourceName($name)
+    {
+        $connection = new static(ResourceFactory::getResourceConfig($name));
+
+        if ($connection->isMysql()) {
+            $connection->setClientTimezoneForMysql();
+        } elseif ($connection->isPgsql()) {
+            $connection->setClientTimezoneForPgsql();
+        }
+
+        return $connection;
+    }
+
+    protected function getTimezoneOffset()
+    {
+        $tz = new DateTimeZone(date_default_timezone_get());
+        $offset = $tz->getOffset(new DateTime());
+        $prefix = $offset >= 0 ? '+' : '-';
+        $offset = abs($offset);
+
+        $hours = (int) floor($offset / 3600);
+        $minutes = (int) floor(($offset % 3600) / 60);
+
+        return sprintf('%s%d:%02d', $prefix, $hours, $minutes);
+    }
+
+    protected function setClientTimezoneForMysql()
+    {
+        $db = $this->getDbAdapter();
+        $db->query($db->quoteInto('SET time_zone = ?', $this->getTimezoneOffset()));
+    }
+
+    protected function setClientTimezoneForPgsql()
+    {
+        $db = $this->getDbAdapter();
+        $db->query($db->quoteInto('SET TIME ZONE INTERVAL ? HOUR TO MINUTE', $this->getTimezoneOffset()));
     }
 
     public function countActivitiesSinceLastDeployedConfig(IcingaObject $object = null)
@@ -205,6 +275,7 @@ class Db extends DbConnection
     {
         $sql = 'SELECT id, object_type, object_name, action_name,'
              . ' old_properties, new_properties, author, change_time,'
+             . ' UNIX_TIMESTAMP(change_time) AS change_time_ts,'
              . ' %s AS checksum, %s AS parent_checksum'
              . ' FROM director_activity_log WHERE id = %d';
 
@@ -229,7 +300,7 @@ class Db extends DbConnection
         $result = $this->db()->fetchOne($sql);
 
         if ($binary) {
-            return Util::hex2binary($result);
+            return hex2bin($result);
         } else {
             return $result;
         }
@@ -249,6 +320,7 @@ class Db extends DbConnection
 
         $sql = 'SELECT id, object_type, object_name, action_name,'
              . ' old_properties, new_properties, author, change_time,'
+             . ' UNIX_TIMESTAMP(change_time) AS change_time_ts,'
              . ' %s AS checksum, %s AS parent_checksum'
              . ' FROM director_activity_log WHERE checksum = ?';
 
@@ -259,7 +331,7 @@ class Db extends DbConnection
         );
 
         return $db->fetchRow(
-            $db->quoteInto($sql, $this->quoteBinary(Util::hex2binary($checksum)))
+            $db->quoteInto($sql, $this->quoteBinary(hex2bin($checksum)))
         );
     }
 
@@ -636,15 +708,6 @@ class Db extends DbConnection
         } else {
             return sprintf("LOWER(HEX(%s))", $column);
         }
-    }
-
-    public function quoteBinary($binary)
-    {
-        if ($this->isPgsql()) {
-            return new Zend_Db_Expr("'\\x" . bin2hex($binary) . "'");
-        }
-
-        return $binary;
     }
 
     public function enumDeployedConfigs()

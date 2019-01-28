@@ -2,6 +2,7 @@
 
 namespace Icinga\Module\Director\Web\Widget;
 
+use dipl\Html\HtmlDocument;
 use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Objects\SyncRun;
 use dipl\Html\Html;
@@ -19,7 +20,7 @@ class SyncRunDetails extends NameValueTable
     public function __construct(SyncRun $run)
     {
         $this->run = $run;
-        $this->attributes()->add('data-base-target', '_next'); // eigentlich nur runSummary
+        $this->getAttributes()->add('data-base-target', '_next'); // eigentlich nur runSummary
         $this->addNameValuePairs([
             $this->translate('Start time') => $run->start_time,
             $this->translate('Duration') => sprintf('%.2fs', $run->duration_ms / 1000),
@@ -27,6 +28,12 @@ class SyncRunDetails extends NameValueTable
         ]);
     }
 
+    /**
+     * @param SyncRun $run
+     * @return array
+     * @throws \Icinga\Exception\IcingaException
+     * @throws \Icinga\Exception\ProgrammingError
+     */
     protected function runSummary(SyncRun $run)
     {
         $html = [];
@@ -57,7 +64,7 @@ class SyncRunDetails extends NameValueTable
                 $lastId
             );
 
-            $links = new Html();
+            $links = new HtmlDocument();
             $links->setSeparator(', ');
             if ($run->objects_created > 0) {
                 $links->add(new Link(
@@ -88,7 +95,7 @@ class SyncRunDetails extends NameValueTable
                 ));
             }
 
-            if ($links->hasContent()) {
+            if (! $links->isEmpty()) {
                 $html[] = ': ';
                 $html[] = $links;
             }

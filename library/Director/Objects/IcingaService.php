@@ -4,21 +4,26 @@ namespace Icinga\Module\Director\Objects;
 
 use Icinga\Data\Filter\Filter;
 use Icinga\Exception\IcingaException;
-use Icinga\Exception\ProgrammingError;
-use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Data\PropertiesFilter;
+use Icinga\Module\Director\Db;
+use Icinga\Module\Director\Db\Cache\PrefetchCache;
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
+use Icinga\Module\Director\Exception\DuplicateKeyException;
 use Icinga\Module\Director\IcingaConfig\IcingaConfig;
 use Icinga\Module\Director\IcingaConfig\IcingaConfigHelper as c;
 use Icinga\Module\Director\IcingaConfig\IcingaLegacyConfigHelper as c1;
 use Icinga\Module\Director\Objects\Extension\FlappingSupport;
+use Icinga\Module\Director\Resolver\HostServiceBlacklist;
+use InvalidArgumentException;
+use RuntimeException;
 
-class IcingaService extends IcingaObject
+class IcingaService extends IcingaObject implements ExportInterface
 {
     use FlappingSupport;
 
     protected $table = 'icinga_service';
 
-    protected $defaultProperties = array(
+    protected $defaultProperties = [
         'id'                      => null,
         'object_name'             => null,
         'object_type'             => null,
@@ -54,9 +59,9 @@ class IcingaService extends IcingaObject
         'use_var_overrides'       => null,
         'assign_filter'           => null,
         'template_choice_id'      => null,
-    );
+    ];
 
-    protected $relations = array(
+    protected $relations = [
         'host'             => 'IcingaHost',
         'service_set'      => 'IcingaServiceSet',
         'check_command'    => 'IcingaCommand',
@@ -65,9 +70,9 @@ class IcingaService extends IcingaObject
         'command_endpoint' => 'IcingaEndpoint',
         'zone'             => 'IcingaZone',
         'template_choice'  => 'IcingaTemplateChoiceService',
-    );
+    ];
 
-    protected $booleans = array(
+    protected $booleans = [
         'enable_notifications'  => 'enable_notifications',
         'enable_active_checks'  => 'enable_active_checks',
         'enable_passive_checks' => 'enable_passive_checks',
@@ -77,13 +82,13 @@ class IcingaService extends IcingaObject
         'volatile'              => 'volatile',
         'use_agent'             => 'use_agent',
         'use_var_overrides'     => 'use_var_overrides',
-    );
+    ];
 
-    protected $intervalProperties = array(
+    protected $intervalProperties = [
         'check_interval' => 'check_interval',
         'check_timeout'  => 'check_timeout',
         'retry_interval' => 'retry_interval',
-    );
+    ];
 
     protected $supportsGroups = true;
 
@@ -101,17 +106,25 @@ class IcingaService extends IcingaObject
 
     protected $supportedInLegacy = true;
 
-    protected $keyName = array('host_id', 'service_set_id', 'object_name');
+    protected $keyName = ['host_id', 'service_set_id', 'object_name'];
 
-    protected $prioritizedProperties = array('host_id');
+    protected $prioritizedProperties = ['host_id'];
 
-    protected $propertiesNotForRendering = array(
+    protected $propertiesNotForRendering = [
         'id',
         'object_name',
         'object_type',
         'apply_for'
-    );
+    ];
 
+    /** @var ServiceGroupMembershipResolver */
+    protected $servicegroupMembershipResolver;
+
+    /**
+     * @return IcingaCommand
+     * @throws IcingaException
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function getCheckCommand()
     {
         $id = $this->getSingleResolvedProperty('check_command_id');
@@ -121,6 +134,9 @@ class IcingaService extends IcingaObject
         );
     }
 
+    /**
+     * @return bool
+     */
     public function isApplyRule()
     {
         if ($this->hasBeenAssignedToHostTemplate()) {
@@ -128,32 +144,135 @@ class IcingaService extends IcingaObject
         }
 
         return $this->hasProperty('object_type')
-            && $this->object_type === 'apply';
+            && $this->get('object_type') === 'apply';
     }
 
+    /**
+     * @return bool
+     */
     public function usesVarOverrides()
     {
-        return $this->use_var_overrides === 'y';
+        return $this->get('use_var_overrides') === 'y';
     }
 
+    public function getUniqueIdentifier()
+    {
+        if ($this->isTemplate()) {
+            return $this->getObjectName();
+        } else {
+            throw new RuntimeException(
+                'getUniqueIdentifier() is supported by Service Templates only'
+            );
+        }
+    }
+
+    /**
+     * @return object
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public function export()
+    {
+        // TODO: ksort in toPlainObject?
+        $props = (array) $this->toPlainObject();
+        $props['fields'] = $this->loadFieldReferences();
+        ksort($props);
+
+        return (object) $props;
+    }
+
+    /**
+     * @param $plain
+     * @param Db $db
+     * @param bool $replace
+     * @return IcingaService
+     * @throws DuplicateKeyException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public static function import($plain, Db $db, $replace = false)
+    {
+        $properties = (array) $plain;
+        $name = $properties['object_name'];
+        if ($properties['object_type'] !== 'template') {
+            throw new InvalidArgumentException(sprintf(
+                'Can import only Templates, got "%s" for "%s"',
+                $properties['object_type'],
+                $name
+            ));
+        }
+        $key = [
+            'object_type' => 'template',
+            'object_name' => $name
+        ];
+
+        if ($replace && static::exists($key, $db)) {
+            $object = static::load($key, $db);
+        } elseif (static::exists($key, $db)) {
+            throw new DuplicateKeyException(
+                'Service Template "%s" already exists',
+                $name
+            );
+        } else {
+            $object = static::create([], $db);
+        }
+
+        // $object->newFields = $properties['fields'];
+        unset($properties['fields']);
+        $object->setProperties($properties);
+
+        return $object;
+    }
+
+    protected function loadFieldReferences()
+    {
+        $db = $this->getDb();
+
+        $res = $db->fetchAll(
+            $db->select()->from([
+                'sf' => 'icinga_service_field'
+            ], [
+                'sf.datafield_id',
+                'sf.is_required',
+                'sf.var_filter',
+            ])->join(['df' => 'director_datafield'], 'df.id = sf.datafield_id', [])
+                ->where('service_id = ?', $this->get('id'))
+                ->order('varname ASC')
+        );
+
+        if (empty($res)) {
+            return [];
+        } else {
+            foreach ($res as $field) {
+                $field->datafield_id = (int) $field->datafield_id;
+            }
+
+            return $res;
+        }
+    }
+
+    /**
+     * @param string $key
+     * @return $this
+     */
     protected function setKey($key)
     {
         if (is_int($key)) {
-            $this->id = $key;
+            $this->set('id', $key);
         } elseif (is_array($key)) {
-            foreach (array('id', 'host_id', 'service_set_id', 'object_name') as $k) {
+            foreach (['id', 'host_id', 'service_set_id', 'object_name'] as $k) {
                 if (array_key_exists($k, $key)) {
                     $this->set($k, $key[$k]);
                 }
             }
         } else {
-            return parent::setKey($key);
+            parent::setKey($key);
         }
 
         return $this;
     }
 
     /**
+     * @param $name
+     * @return $this
      * @codingStandardsIgnoreStart
      */
     protected function setObject_Name($name)
@@ -177,15 +296,39 @@ class IcingaService extends IcingaObject
      */
     public function renderHost_id()
     {
-        // @codingStandardsIgnoreEnd
-
         if ($this->hasBeenAssignedToHostTemplate()) {
             return '';
         }
 
-        return $this->renderRelationProperty('host', $this->host_id, 'host_name');
+        return $this->renderRelationProperty('host', $this->get('host_id'), 'host_name');
     }
 
+    /**
+     * @codingStandardsIgnoreStart
+     */
+    protected function renderLegacyHost_id($value)
+    {
+        // @codingStandardsIgnoreEnd
+        if (is_array($value)) {
+            $blacklisted = $this->getBlacklistedHostnames();
+            $c = c1::renderKeyValue('host_name', c1::renderArray(array_diff($value, $blacklisted)));
+
+            // blacklisted in this (zoned) scope?
+            $bl = array_intersect($blacklisted, $value);
+            if (! empty($bl)) {
+                $c .= c1::renderKeyValue('# ignored on', c1::renderArray($bl));
+            }
+
+            return $c;
+        } else {
+            return parent::renderLegacyHost_id($value);
+        }
+    }
+
+    /**
+     * @param IcingaConfig $config
+     * @throws IcingaException
+     */
     public function renderToLegacyConfig(IcingaConfig $config)
     {
         if ($this->get('service_set_id') !== null) {
@@ -199,6 +342,7 @@ class IcingaService extends IcingaObject
 
     /**
      * @param IcingaConfig $config
+     * @throws IcingaException
      */
     protected function renderLegacyApplyToConfig(IcingaConfig $config)
     {
@@ -206,45 +350,40 @@ class IcingaService extends IcingaObject
 
         $assign_filter = $this->get('assign_filter');
         $filter = Filter::fromQueryString($assign_filter);
-        $hosts = HostApplyMatches::forFilter($filter, $conn);
+        $hostnames = HostApplyMatches::forFilter($filter, $conn);
+
         $this->set('object_type', 'object');
-        $this->set('assign_filter', null);
 
-        foreach ($hosts as $hostname) {
-            $file = $this->legacyHostnameServicesFile($hostname, $config);
-            $this->set('host', $hostname);
-            $file->addLegacyObject($this);
+        foreach ($this->mapHostsToZones($hostnames) as $zone => $names) {
+            $this->set('host_id', $names);
+
+            $blacklisted = $this->getBlacklistedHostnames();
+            $zoneNames = array_diff($names, $blacklisted);
+            if (empty($zoneNames)) {
+                continue;
+            }
+
+            $config->configFile('director/' . $zone . '/service_apply', '.cfg')
+                ->addLegacyObject($this);
         }
-
-        $this->set('host', null);
-        $this->set('object_type', 'apply');
-        $this->set('assign_filter', $assign_filter);
     }
 
-    protected function legacyHostnameServicesFile($hostname, IcingaConfig $config)
-    {
-        $host = IcingaHost::load($hostname, $this->getConnection());
-        return $config->configFile(
-            'director/' . $host->getRenderingZone($config) . '/service_apply',
-            '.cfg'
-        );
-    }
-
+    /**
+     * @return string
+     */
     public function toLegacyConfigString()
     {
         if ($this->get('service_set_id') !== null) {
             return '';
         }
 
-        if ($this->isApplyRule()) {
-            throw new ProgrammingError('Apply Services can not be rendered directly.');
-        }
-
         $str = parent::toLegacyConfigString();
 
-        if (! $this->isDisabled() && $this->host_id && $this->getRelated('host')->isDisabled()) {
-            return
-                "# --- This services host has been disabled ---\n"
+        if (! $this->isDisabled()
+            && $this->get('host_id')
+            && $this->getRelated('host')->isDisabled()
+        ) {
+            return "# --- This services host has been disabled ---\n"
                 . preg_replace('~^~m', '# ', trim($str))
                 . "\n\n";
         } else {
@@ -252,6 +391,9 @@ class IcingaService extends IcingaObject
         }
     }
 
+    /**
+     * @return string
+     */
     public function toConfigString()
     {
         if ($this->get('service_set_id')) {
@@ -259,14 +401,21 @@ class IcingaService extends IcingaObject
         }
         $str = parent::toConfigString();
 
-        if (! $this->isDisabled() && $this->host_id && $this->getRelated('host')->isDisabled()) {
+        if (! $this->isDisabled()
+            && $this->get('host_id')
+            && $this->getRelated('host')->isDisabled()
+        ) {
             return "/* --- This services host has been disabled ---\n"
-                . $str . "*/\n";
+                // Do not allow strings to break our comment
+                . str_replace('*/', "* /", $str) . "*/\n";
         } else {
             return $str;
         }
     }
 
+    /**
+     * @return string
+     */
     protected function renderObjectHeader()
     {
         if ($this->isApplyRule()
@@ -295,6 +444,9 @@ class IcingaService extends IcingaObject
         return parent::renderObjectHeader();
     }
 
+    /**
+     * @return string
+     */
     protected function getLegacyObjectKeyName()
     {
         if ($this->isTemplate()) {
@@ -304,14 +456,22 @@ class IcingaService extends IcingaObject
         }
     }
 
+    /**
+     * @return bool
+     */
     protected function hasBeenAssignedToHostTemplate()
     {
-        return $this->host_id && $this->getRelatedObject(
+        $hostId = $this->get('host_id');
+
+        return $hostId && $this->getRelatedObject(
             'host',
-            $this->host_id
-        )->object_type === 'template';
+            $hostId
+        )->isTemplate();
     }
 
+    /**
+     * @return string
+     */
     protected function renderSuffix()
     {
         if ($this->isApplyRule() || $this->usesVarOverrides()) {
@@ -321,10 +481,13 @@ class IcingaService extends IcingaObject
         }
     }
 
+    /**
+     * @return string
+     */
     protected function renderImportHostVarOverrides()
     {
         if (! $this->connection) {
-            throw new ProgrammingError(
+            throw new RuntimeException(
                 'Cannot render services without an assigned DB connection'
             );
         }
@@ -332,6 +495,9 @@ class IcingaService extends IcingaObject
         return "\n    import DirectorOverrideTemplate\n";
     }
 
+    /**
+     * @return string
+     */
     protected function renderCustomExtensions()
     {
         $output = '';
@@ -340,24 +506,56 @@ class IcingaService extends IcingaObject
             // TODO: use assignment renderer?
             $filter = sprintf(
                 'assign where %s in host.templates',
-                c::renderString($this->host)
+                c::renderString($this->get('host'))
             );
 
             $output .= "\n    " . $filter . "\n";
         }
 
+        $blacklist = $this->getBlacklistedHostnames();
+        if (! empty($blacklist)) {
+            if (count($blacklist) === 1) {
+                $output .= sprintf(
+                    "    ignore where host.name == %s\n",
+                    c::renderString($blacklist[0])
+                );
+            } else {
+                $output .= sprintf(
+                    "    ignore where host.name in %s\n",
+                    c::renderArray($blacklist)
+                );
+            }
+        }
+
         // A hand-crafted command endpoint overrides use_agent
-        if ($this->command_endpoint_id !== null) {
+        if ($this->get('command_endpoint_id') !== null) {
             return $output;
         }
 
-        if ($this->use_agent === 'y') {
+        if ($this->get('use_agent') === 'y') {
             return $output . c::renderKeyValue('command_endpoint', 'host_name');
-        } elseif ($this->use_agent === 'n') {
+        } elseif ($this->get('use_agent') === 'n') {
             return $output . c::renderKeyValue('command_endpoint', c::renderPhpValue(null));
         } else {
             return $output;
         }
+    }
+
+    /**
+     * @return array
+     */
+    public function getBlacklistedHostnames()
+    {
+        // Hint: if ($this->isApplyRule()) would be nice, but apply rules are
+        // not enough, one might want to blacklist single services from Sets
+        // assigned to single Hosts.
+        if (PrefetchCache::shouldBeUsed()) {
+            $lookup = PrefetchCache::instance()->hostServiceBlacklist();
+        } else {
+            $lookup = new HostServiceBlacklist($this->getConnection());
+        }
+
+        return $lookup->getBlacklistedHostnamesForService($this);
     }
 
     /**
@@ -386,7 +584,7 @@ class IcingaService extends IcingaObject
     protected function renderLegacyDisplay_Name()
     {
         // @codingStandardsIgnoreEnd
-        return c1::renderKeyValue('display_name', $this->display_name);
+        return c1::renderKeyValue('display_name', $this->get('display_name'));
     }
 
     public function hasCheckCommand()
@@ -396,30 +594,26 @@ class IcingaService extends IcingaObject
 
     public function getOnDeleteUrl()
     {
-        if ($this->host_id) {
-            return 'director/host/services?name=' . rawurlencode($this->host);
+        if ($this->get('host_id')) {
+            return 'director/host/services?name=' . rawurlencode($this->get('host'));
         } else {
             return parent::getOnDeleteUrl();
         }
     }
 
-    public function getRenderingZone(IcingaConfig $config = null)
+    protected function getDefaultZone(IcingaConfig $config = null)
     {
-        if ($this->prefersGlobalZone()) {
-            return $this->connection->getDefaultGlobalZoneName();
+        if ($this->get('host_id') === null) {
+            return parent::getDefaultZone();
+        } else {
+            return $this->getRelatedObject('host', $this->get('host_id'))
+                ->getRenderingZone($config);
         }
-
-        $zone = parent::getRenderingZone($config);
-
-        // if bound to a host, and zone is fallback to master
-        if ($this->host_id !== null && $zone === $this->connection->getMasterZoneName()) {
-            /** @var IcingaHost $host */
-            $host = $this->getRelatedObject('host', $this->host_id);
-            return $host->getRenderingZone($config);
-        }
-        return $zone;
     }
 
+    /**
+     * @return string
+     */
     public function createWhere()
     {
         $where = parent::createWhere();
@@ -435,13 +629,20 @@ class IcingaService extends IcingaObject
         return $where;
     }
 
-    // TODO: Duplicate code, clean this up, split it into multiple methods
+
+    /**
+     * TODO: Duplicate code, clean this up, split it into multiple methods
+     * @param Db|null $connection
+     * @param string $prefix
+     * @param null $filter
+     * @return array
+     */
     public static function enumProperties(
         Db $connection = null,
         $prefix = '',
         $filter = null
     ) {
-        $serviceProperties = array();
+        $serviceProperties = [];
         if ($filter === null) {
             $filter = new PropertiesFilter();
         }
@@ -466,7 +667,7 @@ class IcingaService extends IcingaObject
             $serviceProperties[$prefix . $prop] = $prop;
         }
 
-        $serviceVars = array();
+        $serviceVars = [];
 
         if ($connection !== null) {
             foreach ($connection->fetchDistinctServiceVars() as $var) {
@@ -490,7 +691,7 @@ class IcingaService extends IcingaObject
         $props = mt('director', 'Service properties');
         $vars  = mt('director', 'Custom variables');
 
-        $properties = array();
+        $properties = [];
         if (!empty($serviceProperties)) {
             $properties[$props] = $serviceProperties;
             $properties[$props][$prefix . 'groups'] = 'Groups';
@@ -529,9 +730,35 @@ class IcingaService extends IcingaObject
             && $this->get('service_set_id') === null
             && $this->get('host_id') === null
         ) {
-            throw new IcingaException(
+            throw new InvalidArgumentException(
                 'Cannot store a Service object without a related host'
             );
         }
+    }
+
+    protected function notifyResolvers()
+    {
+        $resolver = $this->getServiceGroupMembershipResolver();
+        $resolver->addObject($this);
+        $resolver->refreshDb();
+
+        return $this;
+    }
+
+    protected function getServiceGroupMembershipResolver()
+    {
+        if ($this->servicegroupMembershipResolver === null) {
+            $this->servicegroupMembershipResolver = new ServiceGroupMembershipResolver(
+                $this->getConnection()
+            );
+        }
+
+        return $this->servicegroupMembershipResolver;
+    }
+
+    public function setServiceGroupMembershipResolver(ServiceGroupMembershipResolver $resolver)
+    {
+        $this->servicegroupMembershipResolver = $resolver;
+        return $this;
     }
 }

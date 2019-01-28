@@ -2,11 +2,15 @@
 
 namespace Icinga\Module\Director\Objects;
 
+use Icinga\Module\Director\Db;
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
+use Icinga\Module\Director\Exception\DuplicateKeyException;
 use Icinga\Module\Director\IcingaConfig\IcingaConfigHelper as c;
 use Icinga\Module\Director\IcingaConfig\IcingaLegacyConfigHelper as c1;
 use Icinga\Module\Director\Objects\Extension\Arguments;
+use Zend_Db_Select as DbSelect;
 
-class IcingaCommand extends IcingaObject implements ObjectWithArguments
+class IcingaCommand extends IcingaObject implements ObjectWithArguments, ExportInterface
 {
     use Arguments;
 
@@ -14,7 +18,7 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
 
     protected $type = 'CheckCommand';
 
-    protected $defaultProperties = array(
+    protected $defaultProperties = [
         'id'                    => null,
         'object_name'           => null,
         'object_type'           => null,
@@ -23,7 +27,7 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
         'command'               => null,
         'timeout'               => null,
         'zone_id'               => null,
-    );
+    ];
 
     protected $supportsCustomVars = true;
 
@@ -33,17 +37,17 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
 
     protected $supportedInLegacy = true;
 
-    protected $intervalProperties = array(
+    protected $intervalProperties = [
         'timeout' => 'timeout',
-    );
+    ];
 
-    protected $relations = array(
-        'zone'             => 'IcingaZone',
-    );
+    protected $relations = [
+        'zone' => 'IcingaZone',
+    ];
 
     protected static $pluginDir;
 
-    protected $hiddenExecuteTemplates = array(
+    protected $hiddenExecuteTemplates = [
         'PluginCheck'        => 'plugin-check-command',
         'PluginNotification' => 'plugin-notification-command',
         'PluginEvent'        => 'plugin-event-command',
@@ -55,7 +59,7 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
         'IdoCheck'         => 'ido-check-command',
         'RandomCheck'      => 'random-check-command',
         'CrlCheck'         => 'clr-check-command',
-    );
+    ];
 
     /**
      * Render the 'medhods_execute' property as 'execute'
@@ -75,10 +79,10 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
 
     protected function renderObjectHeader()
     {
-        if ($this->methods_execute) {
+        if ($execute = $this->get('methods_execute')) {
             $itlImport = sprintf(
                 '    import "%s"' . "\n",
-                $this->hiddenExecuteTemplates[$this->methods_execute]
+                $this->hiddenExecuteTemplates[$execute]
             );
         } else {
             $itlImport = '';
@@ -94,6 +98,10 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
         }
     }
 
+    /**
+     * @param $type
+     * @return string
+     */
     protected function renderObjectHeaderWithType($type)
     {
         return sprintf(
@@ -111,7 +119,7 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
         } elseif (is_object($value)) {
             // {  type => Function } -> really??
             return null;
-            return $value;
+            // return $value;
         }
 
         if (self::$pluginDir !== null) {
@@ -149,9 +157,105 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
         return true;
     }
 
+    /**
+     * @return string
+     * @throws \Zend_Db_Select_Exception
+     */
+    public function countDirectUses()
+    {
+        $db = $this->getDb();
+        $id = (int) $this->get('id');
+
+        $qh = $db->select()->from(
+            array('h' => 'icinga_host'),
+            array('cnt' => 'COUNT(*)')
+        )->where('h.check_command_id = ?', $id)
+         ->orWhere('h.event_command_id = ?', $id);
+        $qs = $db->select()->from(
+            array('s' => 'icinga_service'),
+            array('cnt' => 'COUNT(*)')
+        )->where('s.check_command_id = ?', $id)
+            ->orWhere('s.event_command_id = ?', $id);
+        $qn = $db->select()->from(
+            array('n' => 'icinga_notification'),
+            array('cnt' => 'COUNT(*)')
+        )->where('n.command_id = ?', $id);
+        $query = $db->select()->union(
+            [$qh, $qs, $qn],
+            DbSelect::SQL_UNION_ALL
+        );
+
+        return $db->fetchOne($db->select()->from(
+            ['all_cnts' => $query],
+            ['cnt' => 'SUM(cnt)']
+        ));
+    }
+
+    /**
+     * @return bool
+     * @throws \Zend_Db_Select_Exception
+     */
+    public function isInUse()
+    {
+        return $this->countDirectUses() > 0;
+    }
+
+    public function getUniqueIdentifier()
+    {
+        return $this->getObjectName();
+    }
+
+    /**
+     * @return object
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public function export()
+    {
+        $object = $this->toPlainObject();
+        if (property_exists($object, 'arguments')) {
+            foreach ($object->arguments as $key => $argument) {
+                if (property_exists($argument, 'command_id')) {
+                    unset($argument->command_id);
+                }
+            }
+        }
+
+        return $object;
+    }
+
+    /**
+     * @param $plain
+     * @param Db $db
+     * @param bool $replace
+     * @return IcingaCommand
+     * @throws DuplicateKeyException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public static function import($plain, Db $db, $replace = false)
+    {
+        $properties = (array) $plain;
+        $name = $properties['object_name'];
+        $key = $name;
+
+        if ($replace && static::exists($key, $db)) {
+            $object = static::load($key, $db);
+        } elseif (static::exists($key, $db)) {
+            throw new DuplicateKeyException(
+                'Command "%s" already exists',
+                $name
+            );
+        } else {
+            $object = static::create([], $db);
+        }
+
+        $object->setProperties($properties);
+
+        return $object;
+    }
+
     protected function renderCommand()
     {
-        $command = $this->command;
+        $command = $this->get('command');
         $prefix = '';
         if (preg_match('~^([A-Z][A-Za-z0-9_]+\s\+\s)(.+?)$~', $command, $m)) {
             $prefix  = $m[1];
@@ -170,7 +274,8 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
     {
          return $path[0] === '/'
             || $path[0] === '\\'
-            || preg_match('/^[A-Za-z]:\\\/', substr($path, 0, 3));
+            || preg_match('/^[A-Za-z]:\\\/', substr($path, 0, 3))
+            || preg_match('/^%[A-Z][A-Za-z0-9\(\)-]*%/', $path);
     }
 
     public static function setPluginDir($pluginDir)
@@ -186,7 +291,7 @@ class IcingaCommand extends IcingaObject implements ObjectWithArguments
 
     protected function renderLegacyCommand()
     {
-        $command = $this->command;
+        $command = $this->get('command');
         if (preg_match('~^(\$USER\d+\$/?)(.+)$~', $command)) {
             // should be fine, since the user decided to use a macro
         } elseif (! $this->isAbsolutePath($command)) {

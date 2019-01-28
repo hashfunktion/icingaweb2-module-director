@@ -5,7 +5,7 @@ namespace dipl\Html;
 use dipl\Web\Url;
 use Icinga\Web\Url as WebUrl;
 
-class Img extends BaseElement
+class Img extends BaseHtmlElement
 {
     protected $tag = 'img';
 
@@ -30,7 +30,7 @@ class Img extends BaseElement
         /** @var Img $img */
         $img = new static();
         $img->setAttributes($attributes);
-        $img->attributes()->registerCallbackFor('src', array($img, 'getSrcAttribute'));
+        $img->getAttributes()->registerAttributeCallback('src', array($img, 'getSrcAttribute'));
         $img->setUrl($url, $urlParams);
         return $img;
     }

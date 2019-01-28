@@ -28,7 +28,7 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
     public static function load(IcingaHost $host)
     {
         $table = (new static())->setHost($host);
-        $table->attributes()->set('data-base-target', '_self');
+        $table->getAttributes()->set('data-base-target', '_self');
         return $table;
     }
 
@@ -52,6 +52,16 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
 
     public function renderRow($row)
     {
+        $classes = [];
+        if ($row->blacklisted === 'y') {
+            $classes[] = 'strike-links';
+        }
+        if ($row->disabled === 'y') {
+            $classes[] = 'disabled';
+        }
+
+        $attributes = empty($classes) ? null : ['class' => $classes];
+
         return $this::row([
             Link::create(
                 sprintf(
@@ -65,9 +75,12 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
                     'service_id' => $row->id,
                 ]
             )
-        ]);
+        ], $attributes);
     }
 
+    /**
+     * @return \Icinga\Data\SimpleQuery
+     */
     public function prepareQuery()
     {
         $services = [];
@@ -82,11 +95,16 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
         return $ds->select()->columns([
             'id'            => 'id',
             'name'          => 'name',
-            'filter' => 'filter',
+            'filter'        => 'filter',
+            'disabled'      => 'disabled',
+            'blacklisted'   => 'blacklisted',
             'assign_filter' => 'assign_filter',
         ]);
     }
 
+    /***
+     * @return array
+     */
     protected function getAllApplyRules()
     {
         if ($this->allApplyRules === null) {
@@ -99,6 +117,9 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
         return $this->allApplyRules;
     }
 
+    /**
+     * @return array
+     */
     protected function fetchAllApplyRules()
     {
         $db = $this->db;
@@ -108,7 +129,13 @@ class IcingaHostAppliedServicesTable extends SimpleQueryBasedTable
                 'id'            => 's.id',
                 'name'          => 's.object_name',
                 'assign_filter' => 's.assign_filter',
+                'disabled'      => 's.disabled',
+                'blacklisted'   => "CASE WHEN hsb.service_id IS NULL THEN 'n' ELSE 'y' END",
             ]
+        )->joinLeft(
+            ['hsb' => 'icinga_host_service_blacklist'],
+            $db->quoteInto('s.id = hsb.service_id AND hsb.host_id = ?', $this->host->get('id')),
+            []
         )->where('object_type = ? AND assign_filter IS NOT NULL', 'apply');
 
         return $db->fetchAll($query);

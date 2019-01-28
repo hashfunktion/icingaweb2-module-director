@@ -24,7 +24,7 @@ class ConfigFileDiffTable extends ZfQueryBasedTable
     public static function load($leftSum, $rightSum, Db $connection)
     {
         $table = new static($connection);
-        $table->attributes()->add('class', 'config-diff');
+        $table->getAttributes()->add('class', 'config-diff');
         return $table->setLeftChecksum($leftSum)
             ->setRightChecksum($rightSum);
     }
@@ -36,7 +36,7 @@ class ConfigFileDiffTable extends ZfQueryBasedTable
             $row->file_path,
         ]);
 
-        $tr->attributes()->add('class', 'file-' . $row->file_action);
+        $tr->getAttributes()->add('class', 'file-' . $row->file_action);
         return $tr;
     }
 
@@ -104,12 +104,12 @@ class ConfigFileDiffTable extends ZfQueryBasedTable
                 array('cfr' => 'director_generated_config_file'),
                 $db->quoteInto(
                     'cfl.file_path = cfr.file_path AND cfr.config_checksum = ?',
-                    $this->quoteBinary(Util::hex2binary($this->rightChecksum))
+                    $this->quoteBinary(hex2bin($this->rightChecksum))
                 ),
                 array()
             )->where(
                 'cfl.config_checksum = ?',
-                $this->quoteBinary(Util::hex2binary($this->leftChecksum))
+                $this->quoteBinary(hex2bin($this->leftChecksum))
             );
 
         $right = $db->select()
@@ -127,12 +127,12 @@ class ConfigFileDiffTable extends ZfQueryBasedTable
                 array('cfr' => 'director_generated_config_file'),
                 $db->quoteInto(
                     'cfl.file_path = cfr.file_path AND cfl.config_checksum = ?',
-                    $this->quoteBinary(Util::hex2binary($this->leftChecksum))
+                    $this->quoteBinary(hex2bin($this->leftChecksum))
                 ),
                 array()
             )->where(
                 'cfr.config_checksum = ?',
-                $this->quoteBinary(Util::hex2binary($this->rightChecksum))
+                $this->quoteBinary(hex2bin($this->rightChecksum))
             )->where('cfl.file_checksum IS NULL');
 
         return $db->select()->union(array($left, $right))->order('file_path');

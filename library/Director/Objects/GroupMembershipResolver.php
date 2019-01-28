@@ -4,8 +4,11 @@ namespace Icinga\Module\Director\Objects;
 
 use Icinga\Application\Benchmark;
 use Icinga\Data\Filter\Filter;
-use Icinga\Exception\ProgrammingError;
 use Icinga\Module\Director\Db;
+use Icinga\Module\Director\Db\IcingaObjectFilterHelper;
+use Icinga\Module\Director\Repository\IcingaTemplateRepository;
+use InvalidArgumentException;
+use LogicException;
 use Zend_Db_Select as ZfSelect;
 
 /**
@@ -38,11 +41,19 @@ abstract class GroupMembershipResolver
     /** @var IcingaObjectGroup[] */
     protected $groups = array();
 
+    /** @var array */
+    protected $staticGroups = array();
+
     /** @var bool */
     protected $deferred = false;
 
     /** @var bool */
+    protected $checked = false;
+
+    /** @var bool */
     protected $useTransactions = false;
+
+    protected $groupMap;
 
     public function __construct(Db $connection)
     {
@@ -52,26 +63,59 @@ abstract class GroupMembershipResolver
 
     /**
      * @return $this
+     * @throws \Zend_Db_Adapter_Exception
      */
     public function refreshAllMappings()
     {
         return $this->clearGroups()->clearObjects()->refreshDb(true);
     }
 
+    public function checkDb()
+    {
+        if ($this->checked) {
+            return $this;
+        }
+
+        if ($this->isDeferred()) {
+            // ensure we are not working with cached data
+            IcingaTemplateRepository::clear();
+        }
+
+        Benchmark::measure('Rechecking all objects');
+        $this->recheckAllObjects($this->getAppliedGroups());
+        if (empty($this->objects) && empty($this->groups)) {
+            Benchmark::measure('Nothing to check, got no qualified object');
+            return $this;
+        }
+
+        Benchmark::measure('Recheck done, loading existing mappings');
+        $this->fetchStoredMappings();
+        Benchmark::measure('Got stored group mappings');
+
+        $this->checked = true;
+        return $this;
+    }
+
     /**
      * @param bool $force
      * @return $this
+     * @throws \Zend_Db_Adapter_Exception
      */
     public function refreshDb($force = false)
     {
         if ($force || ! $this->isDeferred()) {
-            Benchmark::measure('Going to refresh all group mappings');
-            $this->fetchStoredMappings();
-            Benchmark::measure('Got stored HG mappings, rechecking all objects');
-            $this->recheckAllObjects($this->getAppliedGroups());
+            $this->checkDb();
+
+            if (empty($this->objects) && empty($this->groups)) {
+                Benchmark::measure('Nothing to check, got no qualified object');
+
+                return $this;
+            }
+
             Benchmark::measure('Ready, going to store new mappings');
             $this->storeNewMappings();
             $this->removeOutdatedMappings();
+            Benchmark::measure('Updated group mappings in db');
         }
 
         return $this;
@@ -100,11 +144,11 @@ abstract class GroupMembershipResolver
     public function getType()
     {
         if ($this->type === null) {
-            throw new ProgrammingError(
+            throw new LogicException(sprintf(
                 '"type" is required when extending %s, got none in %s',
                 __CLASS__,
                 get_class($this)
-            );
+            ));
         }
 
         return $this->type;
@@ -126,16 +170,21 @@ abstract class GroupMembershipResolver
     {
         // Hint: cannot use hasBeenLoadedFromDB, as it is false in onStore()
         //       for new objects
-        if (! $id = $object->get('id')) {
+        if (null === ($id = $object->get('id'))) {
             return $this;
         }
         // Disabling for now, how should this work?
         // $this->assertBeenLoadedFromDb($object);
         if ($this->objects === null) {
-            $this->objects = array();
+            $this->objects = [];
         }
 
-        $this->objects[$object->get('id')] = $object;
+        if ($object->isTemplate()) {
+            $this->includeChildObjects($object);
+        } else {
+            $this->objects[$id] = $object;
+        }
+
         return $this;
     }
 
@@ -147,6 +196,26 @@ abstract class GroupMembershipResolver
     {
         foreach ($objects as $object) {
             $this->addObject($object);
+        }
+
+        return $this;
+    }
+
+    protected function includeChildObjects(IcingaObject $object)
+    {
+        $query = $this->db->select()
+            ->from(['o' => $object->getTableName()])
+            ->where('o.object_type = ?', 'object');
+
+        IcingaObjectFilterHelper::filterByTemplate(
+            $query,
+            $object,
+            'o',
+            Db\IcingaObjectFilterHelper::INHERIT_DIRECT_OR_INDIRECT
+        );
+
+        foreach ($object::loadAll($this->connection, $query) as $child) {
+            $this->objects[$child->getProperty('id')] = $child;
         }
 
         return $this;
@@ -188,10 +257,9 @@ abstract class GroupMembershipResolver
     public function addGroup(IcingaObjectGroup $group)
     {
         $this->assertBeenLoadedFromDb($group);
+        $this->groups[$group->get('id')] = $group;
 
-        if ($group->get('assign_filter') !== null) {
-            $this->groups[$group->get('id')] = $group;
-        }
+        $this->checked = false;
 
         return $this;
     }
@@ -205,6 +273,8 @@ abstract class GroupMembershipResolver
         foreach ($groups as $group) {
             $this->addGroup($group);
         }
+
+        $this->checked = false;
 
         return $this;
     }
@@ -235,12 +305,25 @@ abstract class GroupMembershipResolver
     public function clearGroups()
     {
         $this->objects = array();
+        $this->checked = false;
         return $this;
     }
 
+    public function getNewMappings()
+    {
+        if ($this->newMappings !== null && $this->existingMappings !== null) {
+            return $this->getDifference($this->newMappings, $this->existingMappings);
+        } else {
+            return [];
+        }
+    }
+
+    /**
+     * @throws \Zend_Db_Adapter_Exception
+     */
     protected function storeNewMappings()
     {
-        $diff = $this->getDifference($this->newMappings, $this->existingMappings);
+        $diff = $this->getNewMappings();
         $count = count($diff);
         if ($count === 0) {
             return;
@@ -264,9 +347,37 @@ abstract class GroupMembershipResolver
         );
     }
 
+    protected function getGroupId($name)
+    {
+        $type = $this->type;
+        if ($this->groupMap === null) {
+            $this->groupMap = $this->db->fetchPairs(
+                $this->db->select()->from("icinga_${type}group", ['object_name', 'id'])
+            );
+        }
+
+        if (array_key_exists($name, $this->groupMap)) {
+            return $this->groupMap[$name];
+        } else {
+            throw new InvalidArgumentException(
+                'Unable to lookup the group name for "%s"',
+                $name
+            );
+        }
+    }
+
+    public function getOutdatedMappings()
+    {
+        if ($this->newMappings !== null && $this->existingMappings !== null) {
+            return $this->getDifference($this->existingMappings, $this->newMappings);
+        } else {
+            return [];
+        }
+    }
+
     protected function removeOutdatedMappings()
     {
-        $diff = $this->getDifference($this->existingMappings, $this->newMappings);
+        $diff = $this->getOutdatedMappings();
         $count = count($diff);
         if ($count === 0) {
             return;
@@ -323,6 +434,9 @@ abstract class GroupMembershipResolver
         return $diff;
     }
 
+    /**
+     * This fetches already resolved memberships
+     */
     protected function fetchStoredMappings()
     {
         $mappings = array();
@@ -335,8 +449,13 @@ abstract class GroupMembershipResolver
                 'object_id' => "${type}_id",
             )
         );
+
         $this->addMembershipWhere($query, "${type}_id", $this->objects);
         $this->addMembershipWhere($query, "${type}group_id", $this->groups);
+        if (! empty($this->groups)) {
+            // load staticGroups (we touched here) additionally, so we can compare changes
+            $this->addMembershipWhere($query, "${type}group_id", $this->staticGroups);
+        }
 
         foreach ($this->db->fetchAll($query) as $row) {
             $groupId = $row->group_id;
@@ -354,7 +473,7 @@ abstract class GroupMembershipResolver
     /**
      * @param ZfSelect $query
      * @param string $column
-     * @param IcingaObject[] $objects
+     * @param IcingaObject[]|int[] $objects
      * @return ZfSelect
      */
     protected function addMembershipWhere(ZfSelect $query, $column, & $objects)
@@ -364,8 +483,14 @@ abstract class GroupMembershipResolver
         }
 
         $ids = array();
-        foreach ($objects as $object) {
-            $ids[] = (int) $object->get('id');
+        foreach ($objects as $k => $object) {
+            if (is_int($object)) {
+                $ids[] = $k;
+            } elseif (is_string($object)) {
+                $ids[] = (int) $object;
+            } else {
+                $ids[] = (int) $object->get('id');
+            }
         }
 
         if (count($ids) === 1) {
@@ -379,13 +504,16 @@ abstract class GroupMembershipResolver
 
     protected function recheckAllObjects($groups)
     {
-        $mappings = array();
+        $mappings = [];
+        $staticGroups = [];
 
         if ($this->objects === null) {
             $objects = $this->fetchAllObjects();
         } else {
             $objects = & $this->objects;
         }
+
+        $times = array();
 
         foreach ($objects as $object) {
             if ($object->shouldBeRemoved()) {
@@ -394,25 +522,61 @@ abstract class GroupMembershipResolver
             if ($object->isTemplate()) {
                 continue;
             }
-            // TODO: fix this last hard host dependency
-            $resolver = HostApplyMatches::prepare($object);
-            foreach ($groups as $groupId => $filter) {
-                if ($resolver->matchesFilter(Filter::fromQueryString($filter))) {
-                    if (! array_key_exists($groupId, $mappings)) {
-                        $mappings[$groupId] = array();
-                    }
 
-                    $id = $object->get('id');
+            $mt = microtime(true);
+            $id = $object->get('id');
+
+            DynamicApplyMatches::setType($this->type);
+            $resolver = DynamicApplyMatches::prepare($object);
+            foreach ($groups as $groupId => $filter) {
+                if ($resolver->matchesFilter($filter)) {
+                    if (! array_key_exists($groupId, $mappings)) {
+                        $mappings[$groupId] = [];
+                    }
                     $mappings[$groupId][$id] = $id;
                 }
             }
+
+            // can only be run reliably when updating for all groups
+            $groupNames = $object->get('groups');
+            if (empty($groupNames)) {
+                $groupNames = $object->listInheritedGroupNames();
+            }
+            foreach ($groupNames as $name) {
+                $groupId = $this->getGroupId($name);
+                if (! array_key_exists($groupId, $mappings)) {
+                    $mappings[$groupId] = [];
+                }
+
+                $mappings[$groupId][$id] = $id;
+                $staticGroups[$groupId] = $groupId;
+            }
+
+            $times[] = (microtime(true) - $mt) * 1000;
         }
 
-        foreach ($this->fetchMissingSingleAssignments() as $row) {
-            $mappings[$row->group_id][$row->object_id] = $row->object_id;
+        $count = count($times);
+        $min = $max = $avg = 0;
+        if ($count > 0) {
+            $min = min($times);
+            $max = max($times);
+            $avg = array_sum($times) / $count;
         }
+
+        Benchmark::measure(sprintf(
+            '%sgroup apply recalculated: objects=%d groups=%d min=%d max=%d avg=%d (in ms)',
+            $this->type,
+            $count,
+            count($groups),
+            $min,
+            $max,
+            $avg
+        ));
+
+        Benchmark::measure('Done with single assignments');
 
         $this->newMappings = $mappings;
+        $this->staticGroups = $staticGroups;
     }
 
     protected function getAppliedGroups()
@@ -431,7 +595,7 @@ abstract class GroupMembershipResolver
             $list[$id] = $group->get('assign_filter');
         }
 
-        return $list;
+        return $this->parseFilters($list);
     }
 
     protected function fetchAppliedGroups()
@@ -443,33 +607,23 @@ abstract class GroupMembershipResolver
                 'id',
                 'assign_filter',
             )
-        )->where('assign_filter IS NOT NULL');
+        )->where("assign_filter IS NOT NULL AND assign_filter != ''");
 
-        return $this->db->fetchPairs($query);
+        return $this->parseFilters($this->db->fetchPairs($query));
     }
 
-    protected function fetchMissingSingleAssignments()
+    /**
+     * Parsing a list of query strings to Filter
+     *
+     * @param string[] $list List of query strings
+     *
+     * @return Filter[]
+     */
+    protected function parseFilters($list)
     {
-        $type = $this->getType();
-        $query = $this->db->select()->from(
-            array("go" => $this->getTableName()),
-            array(
-                'object_id' => "${type}_id",
-                'group_id'  => "${type}group_id",
-            )
-        )->joinLeft(
-            array("gor" => $this->getResolvedTableName()),
-            "go.${type}_id = gor.${type}_id AND go.${type}group_id = gor.${type}group_id",
-            array()
-        );
-
-        $this->addMembershipWhere($query, "go.${type}_id", $this->objects);
-        $this->addMembershipWhere($query, "go.${type}group_id", $this->groups);
-
-        // Order matters, this must be AND:
-        $query->where("gor.${type}_id IS NULL");
-
-        return $this->db->fetchAll($query);
+        return array_map(function ($s) {
+            return Filter::fromQueryString($s);
+        }, $list);
     }
 
     protected function getTableName()
@@ -526,8 +680,8 @@ abstract class GroupMembershipResolver
 
     protected function assertBeenLoadedFromDb(IcingaObject $object)
     {
-        if (! ctype_digit($object->get('id'))) {
-            throw new ProgrammingError(
+        if (! is_int($object->get('id')) && ! ctype_digit($object->get('id'))) {
+            throw new LogicException(
                 'Group resolver does not support unstored objects'
             );
         }

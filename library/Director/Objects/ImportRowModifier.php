@@ -2,10 +2,10 @@
 
 namespace Icinga\Module\Director\Objects;
 
-use Icinga\Exception\ConfigurationError;
 use Icinga\Module\Director\Data\Db\DbObjectWithSettings;
 use Icinga\Module\Director\Hook\PropertyModifierHook;
 use Icinga\Module\Director\Objects\Extension\PriorityColumn;
+use RuntimeException;
 
 class ImportRowModifier extends DbObjectWithSettings
 {
@@ -39,7 +39,10 @@ class ImportRowModifier extends DbObjectWithSettings
             $class = $this->get('provider_class');
             /** @var PropertyModifierHook $obj */
             if (! class_exists($class)) {
-                throw new ConfigurationError('Cannot instantiate Property modifier %s', $class);
+                throw new RuntimeException(sprintf(
+                    'Cannot instantiate Property modifier %s',
+                    $class
+                ));
             }
             $obj = new $class;
             $obj->setSettings($this->getSettings());
@@ -51,9 +54,23 @@ class ImportRowModifier extends DbObjectWithSettings
         return $this->hookInstance;
     }
 
+    /**
+     * @return \stdClass
+     */
+    public function export()
+    {
+        $properties =  $this->getProperties();
+        unset($properties['id']);
+        unset($properties['source_id']);
+        $properties['settings'] = (object) $this->getSettings();
+        ksort($properties);
+
+        return (object) $properties;
+    }
+
     protected function beforeStore()
     {
-        if (! $this->hasBeenLoadedFromDb()) {
+        if (! $this->hasBeenLoadedFromDb() && $this->get('priority') === null) {
             $this->setNextPriority('source_id');
         }
     }

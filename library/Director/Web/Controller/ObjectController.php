@@ -6,11 +6,13 @@ use Icinga\Exception\IcingaException;
 use Icinga\Exception\InvalidPropertyException;
 use Icinga\Exception\NotFoundError;
 use Icinga\Module\Director\Deployment\DeploymentInfo;
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
 use Icinga\Module\Director\Forms\DeploymentLinkForm;
 use Icinga\Module\Director\Forms\IcingaCloneObjectForm;
 use Icinga\Module\Director\Forms\IcingaObjectFieldForm;
 use Icinga\Module\Director\Objects\IcingaObject;
 use Icinga\Module\Director\Objects\IcingaObjectGroup;
+use Icinga\Module\Director\Objects\IcingaServiceSet;
 use Icinga\Module\Director\RestApi\IcingaObjectHandler;
 use Icinga\Module\Director\Web\Controller\Extension\ObjectRestrictions;
 use Icinga\Module\Director\Web\Form\DirectorObjectForm;
@@ -59,6 +61,12 @@ abstract class ObjectController extends ActionController
                 $handler->setObject($this->object);
             }
             $handler->dispatch();
+            // Hint: also here, hard exit. There is too much magic going on.
+            // Letting this bubble up smoothly would be "correct", but proved
+            // to be too fragile. Web 2, all kinds of pre/postDispatch magic,
+            // different view renderers - hard exit is the only safe bet right
+            // now.
+            exit;
         } else {
             $this->eventuallyLoadObject();
             if ($this->getRequest()->getActionName() === 'add') {
@@ -73,6 +81,9 @@ abstract class ObjectController extends ActionController
         }
     }
 
+    /**
+     * @throws NotFoundError
+     */
     public function indexAction()
     {
         if (! $this->getRequest()->isApiRequest()) {
@@ -105,6 +116,9 @@ abstract class ObjectController extends ActionController
         $this->content()->add($form);
     }
 
+    /**
+     * @throws NotFoundError
+     */
     public function editAction()
     {
         $object = $this->requireObject();
@@ -112,9 +126,14 @@ abstract class ObjectController extends ActionController
         $this->addObjectTitle()
              ->addObjectForm($object)
              ->addActionClone()
-             ->addActionUsage();
+             ->addActionUsage()
+             ->addActionBasket();
     }
 
+    /**
+     * @throws NotFoundError
+     * @throws \Icinga\Security\SecurityException
+     */
     public function renderAction()
     {
         $this->assertTypePermission()
@@ -127,6 +146,9 @@ abstract class ObjectController extends ActionController
         $preview->renderTo($this);
     }
 
+    /**
+     * @throws NotFoundError
+     */
     public function cloneAction()
     {
         $this->assertTypePermission();
@@ -145,6 +167,10 @@ abstract class ObjectController extends ActionController
             ->content()->add($form);
     }
 
+    /**
+     * @throws NotFoundError
+     * @throws \Icinga\Security\SecurityException
+     */
     public function fieldsAction()
     {
         $this->assertPermission('director/admin');
@@ -177,10 +203,14 @@ abstract class ObjectController extends ActionController
         $form->handleRequest();
         $this->content()->add($form);
         $table = new IcingaObjectDatafieldTable($object);
-        $table->attributes()->set('data-base-target', '_self');
+        $table->getAttributes()->set('data-base-target', '_self');
         $table->renderTo($this);
     }
 
+    /**
+     * @throws NotFoundError
+     * @throws \Icinga\Security\SecurityException
+     */
     public function historyAction()
     {
         $this
@@ -194,12 +224,18 @@ abstract class ObjectController extends ActionController
 
         $db = $this->db();
         $type = $this->getType();
-        (new ActivityLogTable($db))
+        $table = (new ActivityLogTable($db))
             ->setLastDeployedId($db->getLastDeploymentActivityLogId())
-            ->filterObject('icinga_' . $type, $name)
-            ->renderTo($this);
+            ->filterObject('icinga_' . $type, $name);
+        if ($host = $this->params->get('host')) {
+            $table->filterHost($host);
+        }
+        $table->renderTo($this);
     }
 
+    /**
+     * @throws NotFoundError
+     */
     public function membershipAction()
     {
         $object = $this->requireObject();
@@ -218,6 +254,10 @@ abstract class ObjectController extends ActionController
             ->renderTo($this);
     }
 
+    /**
+     * @return $this
+     * @throws NotFoundError
+     */
     protected function addObjectTitle()
     {
         $object = $this->requireObject();
@@ -231,11 +271,15 @@ abstract class ObjectController extends ActionController
         return $this;
     }
 
+    /**
+     * @return $this
+     * @throws NotFoundError
+     */
     protected function addActionUsage()
     {
         $type = $this->getType();
         $object = $this->requireObject();
-        if ($object->isTemplate() && ! $type === 'serviceSet') {
+        if ($object->isTemplate() && $type !== 'serviceSet') {
             $this->actions()->add([
                 Link::create(
                     $this->translate('Usage'),
@@ -257,6 +301,39 @@ abstract class ObjectController extends ActionController
             $this->object->getUrlParams(),
             array('class' => 'icon-paste')
         ));
+
+        return $this;
+    }
+
+    /**
+     * @return $this
+     */
+    protected function addActionBasket()
+    {
+        if ($this->hasBasketSupport()) {
+            $object = $this->object;
+            if ($object instanceof ExportInterface) {
+                if ($object instanceof IcingaServiceSet) {
+                    $type = 'ServiceSet';
+                } elseif ($object->isTemplate()) {
+                    $type = ucfirst($this->getType()) . 'Template';
+                } elseif ($object->isGroup()) {
+                    $type = ucfirst($this->getType());
+                } else {
+                    // Command? Sure?
+                    $type = ucfirst($this->getType());
+                }
+                $this->actions()->add(Link::create(
+                    $this->translate('Add to Basket'),
+                    'director/basket/add',
+                    [
+                        'type'  => $type,
+                        'names' => $object->getUniqueIdentifier()
+                    ],
+                    ['class' => 'icon-tag']
+                ));
+            }
+        }
 
         return $this;
     }
@@ -440,10 +517,19 @@ abstract class ObjectController extends ActionController
         return $form;
     }
 
+    protected function hasBasketSupport()
+    {
+        return $this->object->isTemplate() || $this->object->isGroup();
+    }
+
     protected function onObjectFormLoaded(DirectorObjectForm $form)
     {
     }
 
+    /**
+     * @return IcingaObject
+     * @throws NotFoundError
+     */
     protected function requireObject()
     {
         if (! $this->object) {

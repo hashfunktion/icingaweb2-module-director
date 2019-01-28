@@ -2,304 +2,160 @@
 
 namespace dipl\Html;
 
-use Countable;
-use Exception;
-use Icinga\Exception\ProgrammingError;
+use InvalidArgumentException;
 
 /**
  * Class Html
- * @package dipl\Html
+ *
+ * This is your main utility class when working with ipl\Html
+ *
+ * @package ipl\Html
  */
-class Html implements ValidHtml, Countable
+abstract class Html
 {
-    protected $contentSeparator = '';
-
-    /** @var ValidHtml[] */
-    private $content = [];
-
-    /** @var array */
-    private $contentIndex = [];
-
     /**
-     * @param ValidHtml|array|string $content
-     * @return $this
+     * Create a HTML element from the given tag, attributes and content
+     *
+     * This method does not render the HTML element but creates a {@link HtmlElement}
+     * instance from the given tag, attributes and content
+     *
+     * @param   string $name       The desired HTML tag name
+     * @param   mixed  $attributes HTML attributes or content for the element
+     * @param   mixed  $content    The content of the element if no attributes have been given
+     *
+     * @return  HtmlElement The created element
      */
-    public function add($content)
+    public static function tag($name, $attributes = null, $content = null)
     {
-        if (is_array($content)) {
-            foreach ($content as $c) {
-                $this->addContent($c);
-            }
-        } else {
-            $this->addIndexedContent(Util::wantHtml($content));
-        }
-
-        return $this;
-    }
-
-    /**
-     * @param $tag
-     * @return BaseElement
-     * @throws ProgrammingError
-     */
-    public function getFirst($tag)
-    {
-        foreach ($this->content as $c) {
-            if ($c instanceof BaseElement && $c->getTag() === $tag) {
-                return $c;
-            }
-        }
-
-        throw new ProgrammingError(
-            'Trying to get first %s, but there is no such',
-            $tag
-        );
-    }
-
-    /**
-     * @param $content
-     * @return $this
-     */
-    public function prepend($content)
-    {
-        if (is_array($content)) {
-            foreach (array_reverse($content) as $c) {
-                $this->prepend($c);
-            }
-        } else {
-            $pos = 0;
-            $html = Util::wantHtml($content);
-            array_unshift($this->content, $html);
-            $this->incrementIndexKeys();
-            $this->addObjectPosition($html, $pos);
-        }
-
-        return $this;
-    }
-
-    public function remove(Html $html)
-    {
-        $key = spl_object_hash($html);
-        if (array_key_exists($key, $this->contentIndex)) {
-            foreach ($this->contentIndex[$key] as $pos) {
-                unset($this->content[$pos]);
-            }
-        }
-
-        $this->reIndexContent();
-    }
-
-    /**
-     * @param $string
-     * @return Html
-     */
-    public function addPrintf($string)
-    {
-        $args = func_get_args();
-        array_shift($args);
-
-        return $this->add(
-            new FormattedString($string, $args)
-        );
-    }
-
-    /**
-     * @param Html|array|string $content
-     * @return $this
-     */
-    public function setContent($content)
-    {
-        $this->content = array();
-        static::addContent($content);
-
-        return $this;
-    }
-
-    /**
-     * @see Html::add()
-     */
-    public function addContent($content)
-    {
-        return $this->add($content);
-    }
-
-    /**
-     * return ValidHtml[]
-     */
-    public function getContent()
-    {
-        return $this->content;
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasContent()
-    {
-        return ! empty($this->content);
-    }
-
-    /**
-     * @return int
-     */
-    public function count()
-    {
-        return count($this->content);
-    }
-
-    /**
-     * @param $separator
-     * @return self
-     */
-    public function setSeparator($separator)
-    {
-        $this->contentSeparator = $separator;
-        return $this;
-    }
-
-    /**
-     * @inheritdoc
-     */
-    public function render()
-    {
-        $html = array();
-
-        foreach ($this->content as $element) {
-            if (is_string($element)) {
-                var_dump($this->content);
-            }
-            $html[] = $element->render();
-        }
-
-        return implode($this->contentSeparator, $html);
-    }
-
-    /**
-     * @param $tag
-     * @param null $attributes
-     * @param null $content
-     * @return BaseElement
-     */
-    public static function tag($tag, $attributes = null, $content = null)
-    {
-        return Element::create($tag, $attributes, $content);
-    }
-
-    /**
-     * @deprecated
-     * @param $name
-     * @param null $attributes
-     * @return Element
-     * @throws ProgrammingError
-     */
-    public static function element($name, $attributes = null)
-    {
-        // TODO: This might be anything here, add a better check
-        if (! ctype_alnum($name)) {
-            throw new ProgrammingError('Invalid element requested');
-        }
-
-        $class = __NAMESPACE__ . '\\' . $name;
-        /** @var Element $element */
-        $element = new $class();
-        if ($attributes !== null) {
-            $element->setAttributes($attributes);
-        }
-
-        return $element;
-    }
-
-    /**
-     * @param $name
-     * @param $arguments
-     * @return BaseElement
-     */
-    public static function __callStatic($name, $arguments)
-    {
-        $attributes = array_shift($arguments);
-        $content = null;
-        if ($attributes instanceof ValidHtml || is_string($attributes)) {
+        if ($attributes instanceof ValidHtml
+            || is_string($attributes)
+            || is_int($attributes)
+            || is_float($attributes)
+        ) {
             $content = $attributes;
             $attributes = null;
         } elseif (is_array($attributes)) {
-            if (empty($attributes)) {
-                $attributes = null;
-            } elseif (is_int(key($attributes))) {
+            reset($attributes);
+            if (is_int(key($attributes))) {
                 $content = $attributes;
                 $attributes = null;
             }
         }
 
-        if (! empty($arguments)) {
-            if (null === $content) {
-                $content = $arguments;
-            } else {
-                $content = [$content, $arguments];
-            }
-        }
-
-        return Element::create($name, $attributes, $content);
+        return new HtmlElement($name, $attributes, $content);
     }
 
     /**
-     * @param Exception|string $error
-     * @return string
+     * Convert special characters to HTML5 entities using the UTF-8 character
+     * set for encoding
+     *
+     * This method internally uses {@link htmlspecialchars} with the following
+     * flags:
+     *
+     * * Single quotes are not escaped (ENT_COMPAT)
+     * * Uses HTML5 entities, disallowing &#013; (ENT_HTML5)
+     * * Invalid characters are replaced with � (ENT_SUBSTITUTE)
+     *
+     * Already existing HTML entities will be encoded as well.
+     *
+     * @param   string  $content        The content to encode
+     *
+     * @return  string  The encoded content
      */
-    protected function renderError($error)
+    public static function escape($content)
     {
-        return Util::renderError($error);
+        return htmlspecialchars($content, ENT_COMPAT | ENT_HTML5 | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     /**
-     * @return string
+     * sprintf()-like helper method
+     *
+     * This allows to use sprintf with ValidHtml elements, but with the
+     * advantage that they'll not be rendered immediately. The result is an
+     * instance of FormattedString, being ValidHtml
+     *
+     * Usage:
+     *
+     *     echo Html::sprintf('Hello %s!', Html::tag('strong', $name));
+     *
+     * @param $string
+     * @return FormattedString
      */
-    public function __toString()
-    {
-        try {
-            return $this->render();
-        } catch (Exception $e) {
-            return $this->renderError($e);
-        }
-    }
-
     public static function sprintf($string)
     {
         $args = func_get_args();
         array_shift($args);
+
         return new FormattedString($string, $args);
     }
 
-    private function reIndexContent()
+    /**
+     * Accept any input and try to convert it to ValidHtml
+     *
+     * Returns the very same element in case it's already valid
+     *
+     * @param $any
+     * @return ValidHtml
+     * @throws InvalidArgumentException
+     */
+    public static function wantHtml($any)
     {
-        $this->contentIndex = [];
-        foreach ($this->content as $pos => $html) {
-            $this->addObjectPosition($html, $pos);
-        }
-    }
-
-    private function addObjectPosition(ValidHtml $html, $pos)
-    {
-        $key = spl_object_hash($html);
-        if (array_key_exists($key, $this->contentIndex)) {
-            $this->contentIndex[$key][] = $pos;
-        } else {
-            $this->contentIndex[$key] = [$pos];
-        }
-    }
-
-    private function addIndexedContent(ValidHtml $html)
-    {
-        $pos = count($this->content);
-        $this->content[$pos] = $html;
-        $this->addObjectPosition($html, $pos);
-    }
-
-    private function incrementIndexKeys()
-    {
-        foreach ($this->contentIndex as & $index) {
-            foreach ($index as & $pos) {
-                $pos++;
+        if ($any instanceof ValidHtml) {
+            return $any;
+        } elseif (static::canBeRenderedAsString($any)) {
+            return new Text($any);
+        } elseif (is_array($any)) {
+            $html = new HtmlDocument();
+            foreach ($any as $el) {
+                $html->add(static::wantHtml($el));
             }
+
+            return $html;
+        } else {
+            throw new InvalidArgumentException(sprintf(
+                'String, Html Element or Array of such expected, got "%s"',
+                Error::getPhpTypeName($any)
+            ));
         }
+    }
+
+    /**
+     * Whether a given variable can be rendered as a string
+     *
+     * @param $any
+     * @return bool
+     */
+    public static function canBeRenderedAsString($any)
+    {
+        return is_string($any) || is_int($any) || is_null($any) || is_float($any);
+    }
+
+    /**
+     * @param $name
+     * @param $arguments
+     * @return HtmlElement
+     */
+    public static function __callStatic($name, $arguments)
+    {
+        $attributes = array_shift($arguments);
+        $content = array_shift($arguments);
+
+        return static::tag($name, $attributes, $content);
+    }
+
+    /**
+     * @deprecated Use {@link Html::encode()} instead
+     */
+    public static function escapeForHtml($content)
+    {
+        return static::escape($content);
+    }
+
+    /**
+     * @deprecated Use {@link Error::render()} instead
+     */
+    public static function renderError($error)
+    {
+        return Error::render($error);
     }
 }

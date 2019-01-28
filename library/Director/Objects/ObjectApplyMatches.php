@@ -25,16 +25,39 @@ abstract class ObjectApplyMatches
 
     protected static $type;
 
+    protected static $preparedFilters = array();
+
     public static function prepare(IcingaObject $object)
     {
         return new static($object);
     }
 
+    /**
+     * Prepare a Filter with fixed columns, and store the result
+     *
+     * @param Filter $filter
+     *
+     * @return Filter
+     */
+    protected static function getPreparedFilter(Filter $filter)
+    {
+        $hash = spl_object_hash($filter);
+        if (! array_key_exists($hash, self::$preparedFilters)) {
+            $filter = clone($filter);
+            static::fixFilterColumns($filter);
+            self::$preparedFilters[$hash] = $filter;
+        }
+        return self::$preparedFilters[$hash];
+    }
+
     public function matchesFilter(Filter $filter)
     {
-        $filter = clone($filter);
-        static::fixFilterColumns($filter);
-        return $filter->matches($this->flatObject);
+        $filterObj = static::getPreparedFilter($filter);
+        if ($filterObj->isExpression() || ! $filterObj->isEmpty()) {
+            return $filterObj->matches($this->flatObject);
+        } else {
+            return false;
+        }
     }
 
     /**
@@ -114,7 +137,7 @@ abstract class ObjectApplyMatches
             }
 
             $flat = $object->toPlainObject(true, false);
-            static::flattenVars($object);
+            static::flattenVars($flat);
             $objects[$object->getObjectName()] = $flat;
         }
         Benchmark::measure("ObjectApplyMatches: $type cache ready");
@@ -146,7 +169,7 @@ abstract class ObjectApplyMatches
         $type = static::$type;
 
         if (substr($col, 0, strlen($type) + 1) === "${type}.") {
-            $filter->setColumn($col = substr($col, 5));
+            $filter->setColumn($col = substr($col, strlen($type) + 1));
         }
 
         if (array_key_exists($col, self::$columnMap)) {
@@ -188,6 +211,9 @@ abstract class ObjectApplyMatches
     {
         $this->object = $object;
         $this->flatObject = $object->toPlainObject(true, false);
+        // Sure, we are flat - but we might still want to match templates.
+        unset($this->flatObject->imports);
+        $this->flatObject->templates = $object->listFlatResolvedImportNames();
         static::flattenVars($this->flatObject);
     }
 }

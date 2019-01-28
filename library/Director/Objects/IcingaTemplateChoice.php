@@ -3,9 +3,12 @@
 namespace Icinga\Module\Director\Objects;
 
 use Icinga\Exception\ProgrammingError;
+use Icinga\Module\Director\Db;
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
+use Icinga\Module\Director\Exception\DuplicateKeyException;
 use Icinga\Module\Director\Web\Form\QuickForm;
 
-class IcingaTemplateChoice extends IcingaObject
+class IcingaTemplateChoice extends IcingaObject implements ExportInterface
 {
     protected $objectTable;
 
@@ -28,6 +31,68 @@ class IcingaTemplateChoice extends IcingaObject
         return substr(substr($this->table, 0, -16), 7);
     }
 
+    public function getUniqueIdentifier()
+    {
+        return $this->getObjectName();
+    }
+
+    /**
+     * @param $plain
+     * @param Db $db
+     * @param bool $replace
+     * @return IcingaTemplateChoice
+     * @throws DuplicateKeyException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public static function import($plain, Db $db, $replace = false)
+    {
+        $properties = (array) $plain;
+        if (isset($properties['originalId'])) {
+            unset($properties['originalId']);
+        }
+        $name = $properties['object_name'];
+        $key = $name;
+
+        if ($replace && static::exists($key, $db)) {
+            $object = static::load($key, $db);
+        } elseif (static::exists($key, $db)) {
+            throw new DuplicateKeyException(
+                'Template Choice "%s" already exists',
+                $name
+            );
+        } else {
+            $object = static::create([], $db);
+        }
+
+        $object->setProperties($properties);
+
+        return $object;
+    }
+
+    public function export()
+    {
+        $plain = (object) $this->getProperties();
+        $plain->originalId = $plain->id;
+        unset($plain->id);
+        $requiredId = $plain->required_template_id;
+        unset($plain->required_template_id);
+        if ($requiredId) {
+            $db = $this->getDb();
+            $query = $db->select()->from(
+                ['o' => $this->getObjectTableName()],
+                ['o.id', 'o.object_name']
+            )->where("o.object_type = 'template'")
+                ->where('o.template_choice_id = ?', $this->get('id'))
+                ->order('o.object_name');
+
+            return $db->fetchPairs($query);
+        }
+
+        $plain->members = array_values($this->getMembers());
+
+        return $plain;
+    }
+
     public function isMainChoice()
     {
         return $this->hasBeenLoadedFromDb()
@@ -39,6 +104,13 @@ class IcingaTemplateChoice extends IcingaObject
         return substr($this->table, 0, -16);
     }
 
+    /**
+     * @param QuickForm $form
+     * @param array $imports
+     * @param string $namePrefix
+     * @return \Zend_Form_Element
+     * @throws \Zend_Form_Exception
+     */
     public function createFormElement(QuickForm $form, $imports = [], $namePrefix = 'choice')
     {
         $required = $this->isRequired() && !$this->isTemplate();
@@ -73,12 +145,12 @@ class IcingaTemplateChoice extends IcingaObject
 
     public function isRequired()
     {
-        return (int) $this->min_required > 0;
+        return (int) $this->get('min_required') > 0;
     }
 
     public function allowsMultipleChoices()
     {
-        return (int) $this->max_allowed > 1;
+        return (int) $this->get('max_allowed') > 1;
     }
 
     public function hasBeenModified()
@@ -134,7 +206,9 @@ class IcingaTemplateChoice extends IcingaObject
                 ['o' => $this->getObjectTableName()],
                 ['o.id', 'o.object_name']
             )->where("o.object_type = 'template'")
-             ->where('o.template_choice_id = ?', $this->get('id'));
+             ->where('o.template_choice_id = ?', $this->get('id'))
+             ->order('o.object_name');
+
             return $db->fetchPairs($query);
         } else {
             return [];
@@ -147,6 +221,9 @@ class IcingaTemplateChoice extends IcingaObject
         return array_combine($choices, $choices);
     }
 
+    /**
+     * @throws \Zend_Db_Adapter_Exception
+     */
     public function onStore()
     {
         parent::onStore();
@@ -155,6 +232,9 @@ class IcingaTemplateChoice extends IcingaObject
         }
     }
 
+    /**
+     * @throws \Zend_Db_Adapter_Exception
+     */
     protected function storeChoices()
     {
         $id = $this->getProperty('id');

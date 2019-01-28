@@ -2,15 +2,19 @@
 
 namespace dipl\Web\Widget;
 
-use dipl\Html\BaseElement;
-use dipl\Html\Container;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
+use dipl\Html\HtmlDocument;
+use Icinga\Exception\ProgrammingError;
+use RuntimeException;
 
-class Controls extends Container
+class Controls extends BaseHtmlElement
 {
+    protected $tag = 'div';
+
     protected $contentSeparator = "\n";
 
-    protected $defaultAttributes = array('class' => 'controls');
+    protected $defaultAttributes = ['class' => 'controls'];
 
     /** @var Tabs */
     private $tabs;
@@ -24,7 +28,7 @@ class Controls extends Container
     /** @var string */
     private $subTitle;
 
-    /** @var BaseElement */
+    /** @var BaseHtmlElement */
     private $titleElement;
 
     /**
@@ -42,7 +46,11 @@ class Controls extends Container
         return $this->setTitleElement($this->renderTitleElement());
     }
 
-    public function setTitleElement(BaseElement $element)
+    /**
+     * @param BaseHtmlElement $element
+     * @return $this
+     */
+    public function setTitleElement(BaseHtmlElement $element)
     {
         if ($this->titleElement !== null) {
             $this->remove($this->titleElement);
@@ -93,7 +101,12 @@ class Controls extends Container
             $current = $this->tabs->getTabs();
             $this->tabs = $tabs;
             foreach ($current as $name => $tab) {
-                $this->tabs->add($name, $tab);
+                try {
+                    // TODO: Use ipl-based tabs
+                    $this->tabs->add($name, $tab);
+                } catch (ProgrammingError $e) {
+                    throw new RuntimeException($e->getMessage(), 0, $e);
+                }
             }
         }
 
@@ -101,7 +114,7 @@ class Controls extends Container
     }
 
     /**
-     * @return Html
+     * @return ActionBar
      */
     public function getActionBar()
     {
@@ -112,7 +125,11 @@ class Controls extends Container
         return $this->actions;
     }
 
-    public function setActionBar(Html $actionBar)
+    /**
+     * @param HtmlDocument $actionBar
+     * @return $this
+     */
+    public function setActionBar(HtmlDocument $actionBar)
     {
         if ($this->actions !== null) {
             $this->remove($this->actions);
@@ -125,11 +142,11 @@ class Controls extends Container
     }
 
     /**
-     * @return BaseElement
+     * @return BaseHtmlElement
      */
     protected function renderTitleElement()
     {
-        $h1 = Html::tag('h1')->setContent($this->title);
+        $h1 = Html::tag('h1', null, $this->title);
         if ($this->subTitle) {
             $h1->setSeparator(' ')->add(
                 Html::tag('small', null, $this->subTitle)
@@ -139,6 +156,9 @@ class Controls extends Container
         return $h1;
     }
 
+    /**
+     * @return string
+     */
     public function renderContent()
     {
         if (null !== $this->tabs) {

@@ -2,9 +2,9 @@
 
 namespace Icinga\Module\Director;
 
+use dipl\Html\Html;
 use Icinga\Module\Director\Objects\DirectorDeploymentLog;
 use dipl\Html\Link;
-use dipl\Html\Util as iplUtil;
 use dipl\Html\ValidHtml;
 
 class StartupLogRenderer implements ValidHtml
@@ -20,17 +20,29 @@ class StartupLogRenderer implements ValidHtml
     public function render()
     {
         $deployment = $this->deployment;
-        $log = iplUtil::escapeForHtml($deployment->get('startup_log'));
+        $log = Html::escape($deployment->get('startup_log'));
         $lines = array();
         $severity = 'information';
         $sevPattern = '/^(debug|notice|information|warning|critical)\/(\w+)/';
-        $filePatternHint = '~(/[\w/]+/api/packages/director/[^/]+/)([^:]+\.conf)(: (\d+))~';
-        $filePatternDetail = '~(/[\w/]+/api/packages/director/[^/]+/)([^:]+\.conf)(\((\d+)\))~';
+        $settings = new Settings($this->deployment->getConnection());
+        $package = $settings->get('icinga_package_name');
+        $pathPattern = '~(/[\w/]+/api/packages/' . $package . '/[^/]+/)';
+        $filePatternHint = $pathPattern . '([^:]+\.conf)(: (\d+))~';
+        $filePatternDetail = $pathPattern . '([^:]+\.conf)(\((\d+)\))~';
         $markPattern = null;
         // len [stage] + 1
         $markReplace = '        ^';
 
         foreach (preg_split('/\n/', $log) as $line) {
+            if (preg_match('/^\[([\d\s\:\+\-]+)\]\s/', $line, $m)) {
+                $time = $m[1];
+                // TODO: we might use new DateTime($time) and show a special "timeAgo"
+                //       format - but for now this should suffice.
+                $line = substr($line, strpos($line, ']') + 2);
+            } else {
+                $time = null;
+            }
+
             if (preg_match($sevPattern, $line, $m)) {
                 $severity = $m[1];
                 $line = preg_replace(
@@ -70,7 +82,11 @@ class StartupLogRenderer implements ValidHtml
                 );
             }
 
-            $lines[] .= $line;
+            if ($time === null) {
+                $lines[] .= $line;
+            } else {
+                $lines[] .= "[$time] $line";
+            }
         }
         return implode("\n", $lines);
     }

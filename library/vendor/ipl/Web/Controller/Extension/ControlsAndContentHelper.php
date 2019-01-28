@@ -2,11 +2,12 @@
 
 namespace dipl\Web\Controller\Extension;
 
-use dipl\Html\Html;
+use dipl\Html\HtmlDocument;
 use dipl\Web\Widget\Content;
 use dipl\Web\Widget\Controls;
 use dipl\Web\Widget\Tabs;
 use dipl\Web\Url;
+use Icinga\Web\Window;
 
 trait ControlsAndContentHelper
 {
@@ -33,7 +34,16 @@ trait ControlsAndContentHelper
     public function controls()
     {
         if ($this->controls === null) {
-            $this->view->controls = $this->controls = Controls::create();
+            /** @var Window $window */
+            $window = $this->Window();
+            $id = $window->getId();
+            if ($id === null || $id === Window::UNDEFINED) {
+                $id = '_UNDEFINED_';
+            }
+            $this->view->controls = $this->controls = new Controls();
+            $this->controls->addAttributes([
+                'data-director-window-id' => $id,
+            ]);
         }
 
         return $this->controls;
@@ -53,10 +63,10 @@ trait ControlsAndContentHelper
     }
 
     /**
-     * @param Html|null $actionBar
-     * @return Html
+     * @param HtmlDocument|null $actionBar
+     * @return HtmlDocument
      */
-    public function actions(Html $actionBar = null)
+    public function actions(HtmlDocument $actionBar = null)
     {
         if ($actionBar === null) {
             return $this->controls()->getActionBar();
@@ -72,7 +82,7 @@ trait ControlsAndContentHelper
     public function content()
     {
         if ($this->content === null) {
-            $this->view->content = $this->content = Content::create();
+            $this->view->content = $this->content = new Content();
         }
 
         return $this->content;
@@ -113,8 +123,8 @@ trait ControlsAndContentHelper
     }
 
     /**
-     * @param $title
-     * @param null $url
+     * @param string $title
+     * @param mixed $url
      * @param string $name
      * @return $this
      */
@@ -161,7 +171,9 @@ trait ControlsAndContentHelper
      */
     protected function getUrlFromRequest()
     {
-        $webUrl = $this->getRequest()->getUrl();
+        /** @var \Icinga\Web\Request $request */
+        $request = $this->getRequest();
+        $webUrl = $request->getUrl();
 
         return Url::fromPath(
             $webUrl->getPath()

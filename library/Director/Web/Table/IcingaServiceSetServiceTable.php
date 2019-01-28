@@ -2,11 +2,13 @@
 
 namespace Icinga\Module\Director\Web\Table;
 
+use Icinga\Module\Director\Forms\RemoveLinkForm;
 use Icinga\Module\Director\Objects\IcingaHost;
 use Icinga\Module\Director\Objects\IcingaServiceSet;
-use dipl\Html\Element;
+use dipl\Html\HtmlElement;
 use dipl\Html\Link;
 use dipl\Web\Table\ZfQueryBasedTable;
+use dipl\Web\Url;
 
 class IcingaServiceSetServiceTable extends ZfQueryBasedTable
 {
@@ -33,7 +35,7 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
     {
         $table = new static($set->getConnection());
         $table->set = $set;
-        $table->attributes()->set('data-base-target', '_self');
+        $table->getAttributes()->set('data-base-target', '_self');
         return $table;
     }
 
@@ -67,7 +69,7 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
         return $this;
     }
 
-    protected function addHeaderColumnsTo(Element $parent)
+    protected function addHeaderColumnsTo(HtmlElement $parent)
     {
         if ($this->host || $this->affectedHost) {
             $this->addHostHeaderTo($parent);
@@ -78,6 +80,10 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
         return $parent;
     }
 
+    /**
+     * @param $row
+     * @return Link
+     */
     protected function getServiceLink($row)
     {
         if ($this->affectedHost) {
@@ -109,7 +115,10 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
         ]);
 
         if ($row->disabled === 'y') {
-            $tr->attributes()->add('class', 'disabled');
+            $tr->getAttributes()->add('class', 'disabled');
+        }
+        if ($row->blacklisted === 'y') {
+            $tr->getAttributes()->add('class', 'strike-links');
         }
 
         return $tr;
@@ -125,7 +134,10 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
         return $this->title ?: $this->translate('Servicename');
     }
 
-    protected function addHostHeaderTo(Element $parent)
+    /**
+     * @param HtmlElement $parent
+     */
+    protected function addHostHeaderTo(HtmlElement $parent)
     {
         if (! $this->host) {
             $deleteLink = '';
@@ -146,27 +158,50 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
                 ]
             );
         } else {
-            $deleteLink = Link::create(
+            $deleteLink = new RemoveLinkForm(
                 $this->translate('Remove'),
-                'director/host/removeset',
-                [
-                    'name' => $this->host->getObjectName(),
-                    'setId' => $this->set->get('id')
-                ],
-                [
-                    'class' => 'icon-cancel',
-                    'style' => 'float: right; font-weight: normal',
-                    'title' => $this->translate('Remove this set from this host')
-                ]
+                sprintf(
+                    $this->translate('Remove "%s" from this host'),
+                    $this->getTitle()
+                ),
+                Url::fromPath('director/host/services', [
+                    'name' => $this->host->getObjectName()
+                ]),
+                ['title' => $this->getTitle()]
             );
+            $deleteLink->runOnSuccess(function () {
+                $conn = $this->set->getConnection();
+                $db = $conn->getDbAdapter();
+                $query = $db->select()->from(
+                    ['ss' => 'icinga_service_set'],
+                    'ss.id'
+                )->join(
+                    ['ssih' => 'icinga_service_set_inheritance'],
+                    'ssih.service_set_id = ss.id',
+                    []
+                )->where(
+                    'ssih.parent_service_set_id = ?',
+                    $this->set->get('id')
+                )->where('ss.host_id = ?', $this->host->get('id'));
+                IcingaServiceSet::loadWithAutoIncId(
+                    $db->fetchOne($query),
+                    $conn
+                )->delete();
+            });
+            $deleteLink->handleRequest();
         }
 
         $parent->add($this::th([$this->getTitle(), $deleteLink]));
     }
 
+    /**
+     * @return \Zend_Db_Select
+     * @throws \Zend_Db_Select_Exception
+     */
     public function prepareQuery()
     {
-        return $this->db()->select()->from(
+        $db = $this->db();
+        $query = $db->select()->from(
             ['s' => 'icinga_service'],
             [
                 'id'             => 's.id',
@@ -185,5 +220,22 @@ class IcingaServiceSetServiceTable extends ZfQueryBasedTable
             's.service_set_id = ?',
             $this->set->get('id')
         )->order('s.object_name');
+
+        if ($this->affectedHost) {
+            $query->joinLeft(
+                ['hsb' => 'icinga_host_service_blacklist'],
+                $db->quoteInto(
+                    's.id = hsb.service_id AND hsb.host_id = ?',
+                    $this->affectedHost->get('id')
+                ),
+                []
+            )->columns([
+                'blacklisted' => "CASE WHEN hsb.service_id IS NULL THEN 'n' ELSE 'y' END",
+            ]);
+        } else {
+            $query->columns(['blacklisted' => "('n')"]);
+        }
+
+        return $query;
     }
 }

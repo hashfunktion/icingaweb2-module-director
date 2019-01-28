@@ -3,10 +3,9 @@
 namespace Icinga\Module\Director\Resolver;
 
 use Icinga\Application\Benchmark;
-use Icinga\Exception\ConfigurationError;
-use Icinga\Exception\NotImplementedError;
 use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Objects\IcingaObject;
+use RuntimeException;
 
 class TemplateTree
 {
@@ -59,12 +58,12 @@ class TemplateTree
                 if (array_key_exists($pid, $this->names)) {
                     $parents[] = $this->names[$pid];
                 } else {
-                    throw new ConfigurationError(
+                    throw new RuntimeException(sprintf(
                         'Got invalid parent id %d for %s "%s"',
                         $pid,
                         $this->type,
                         $object->getObjectName()
-                    );
+                    ));
                 }
             }
         }
@@ -122,10 +121,14 @@ class TemplateTree
 
     public function getParentsFor(IcingaObject $object)
     {
-        if ($object->hasBeenLoadedFromDb()) {
+        // can not use hasBeenLoadedFromDb() when in onStore()
+        $id = $object->getProperty('id');
+        if ($id !== null) {
             return $this->getParentsById($object->getProperty('id'));
         } else {
-            throw new NotImplementedError('Not yet');
+            throw new RuntimeException(
+                'Loading parents for unstored objects has not been implemented yet'
+            );
             // return $this->getParentsForUnstoredObject($object);
         }
     }
@@ -145,18 +148,31 @@ class TemplateTree
     protected function getAncestorsForUnstoredObject(IcingaObject $object)
     {
         $this->requireTree();
-        $names = $object->imports()->listImportNames();
         $ancestors = [];
-        foreach ($names as $name) {
-            if (! array_key_exists($name, $this->templateNameToId)) {
-                continue;
+        foreach ($object->imports() as $import) {
+            $name = $import->getObjectName();
+            if ($import->hasBeenLoadedFromDb()) {
+                $pid = $import->get('id');
+            } else {
+                if (! array_key_exists($name, $this->templateNameToId)) {
+                    continue;
+                }
+                $pid = $this->templateNameToId[$name];
             }
-            $pid = $this->templateNameToId[$name];
+
             $this->getAncestorsById($pid, $ancestors);
 
             // Hint: inheritance order matters
             if (false !== ($key = array_search($name, $ancestors))) {
-                unset($ancestors[$key]);
+                // Note: this used to be just unset($ancestors[$key]), and that
+                // broke Apply Rules inheriting from Templates with the same name
+                // in a way that related fields no longer showed up (#1602)
+                // This new if relaxes this and doesn't unset in case the name
+                // matches the original object name. However, I'm still unsure why
+                // this was required at all.
+                if ($name !== $object->getObjectName()) {
+                    unset($ancestors[$key]);
+                }
             }
             $ancestors[$pid] = $name;
         }
@@ -209,10 +225,14 @@ class TemplateTree
 
     public function getChildrenFor(IcingaObject $object)
     {
-        if ($object->hasBeenLoadedFromDb()) {
-            return $this->getChildrenById($object->getProperty('id'));
+        // can not use hasBeenLoadedFromDb() when in onStore()
+        $id = $object->getProperty('id');
+        if ($id !== null) {
+            return $this->getChildrenById($id);
         } else {
-            throw new NotImplementedError('Not yet');
+            throw new RuntimeException(
+                'Loading children for unstored objects has not been implemented yet'
+            );
             // return $this->getChildrenForUnstoredObject($object);
         }
     }
@@ -230,10 +250,14 @@ class TemplateTree
 
     public function getDescendantsFor(IcingaObject $object)
     {
-        if ($object->hasBeenLoadedFromDb()) {
-            return $this->getDescendantsById($object->getProperty('id'));
+        // can not use hasBeenLoadedFromDb() when in onStore()
+        $id = $object->getProperty('id');
+        if ($id !== null) {
+            return $this->getDescendantsById($id);
         } else {
-            throw new NotImplementedError('Not yet');
+            throw new RuntimeException(
+                'Loading descendants for unstored objects has not been implemented yet'
+            );
             // return $this->getDescendantsForUnstoredObject($object);
         }
     }
@@ -257,7 +281,10 @@ class TemplateTree
         if ($parentId === null) {
             return $this->returnFullTree();
         } else {
-            return $this->partialTree($parentId);
+            throw new RuntimeException(
+                'Partial tree fetching has not been implemented yet'
+            );
+            // return $this->partialTree($parentId);
         }
     }
 

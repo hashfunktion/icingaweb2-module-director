@@ -6,7 +6,7 @@ use Icinga\Exception\AuthenticationException;
 use Icinga\Module\Director\Repository\IcingaTemplateRepository;
 use Icinga\Module\Director\Restriction\HostgroupRestriction;
 use Icinga\Module\Director\Web\Form\DirectorObjectForm;
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
 use dipl\Html\Link;
 
@@ -34,8 +34,12 @@ class IcingaHostForm extends DirectorObjectForm
             }
         }
 
+        $nameLabel = $this->isTemplate()
+            ? $this->translate('Name')
+            : $this->translate('Hostname');
+
         $this->addElement('text', 'object_name', array(
-            'label'       => $this->translate('Hostname'),
+            'label'       => $nameLabel,
             'required'    => true,
             'spellcheck'  => 'false',
             'description' => $this->translate(
@@ -218,11 +222,11 @@ class IcingaHostForm extends DirectorObjectForm
 
         $inherited = $this->getInheritedGroups();
         if (! empty($inherited)) {
-            /** @var BaseElement $links */
+            /** @var BaseHtmlElement $links */
             $links = $this->createHostgroupLinks($inherited);
             if (count($this->object()->getGroups())) {
                 $links->addAttributes(['class' => 'strike-links']);
-                /** @var BaseElement $link */
+                /** @var BaseHtmlElement $link */
                 foreach ($links->getContent() as $link) {
                     $link->addAttributes([
                         'title' => $this->translate(
@@ -242,11 +246,11 @@ class IcingaHostForm extends DirectorObjectForm
         return $this;
     }
 
-    protected function strikeGroupLinks(BaseElement $links)
+    protected function strikeGroupLinks(BaseHtmlElement $links)
     {
-        /** @var BaseElement $link */
+        /** @var BaseHtmlElement $link */
         foreach ($links->getContent() as $link) {
-            $link->attributes()->add('style', 'text-decoration: strike');
+            $link->getAttributes()->add('style', 'text-decoration: strike');
         }
         $links->add('aha');
     }
@@ -283,24 +287,7 @@ class IcingaHostForm extends DirectorObjectForm
             return [];
         }
 
-        $db = $this->getDb()->getDbAdapter();
-        $query = $db->select()->from(
-            ['hghr' => 'icinga_hostgroup_host_resolved'],
-            ['hg.object_name']
-        )->join(
-            ['hg' => 'icinga_hostgroup'],
-            'hg.id = hghr.hostgroup_id',
-            []
-        )->joinLeft(
-            ['hgh' => 'icinga_hostgroup_host'],
-            'hgh.hostgroup_id = hghr.hostgroup_id',
-            []
-        )->where(
-            'hghr.host_id = ?',
-            $this->object()->get('id')
-        )->where('hgh.host_id IS NULL')->order('hg.object_name');
-
-        return $db->fetchCol($query);
+        return $this->object()->getAppliedGroups();
     }
 
     protected function hasHostGroupRestriction()

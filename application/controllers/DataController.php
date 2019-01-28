@@ -18,32 +18,35 @@ class DataController extends ActionController
     public function listsAction()
     {
         $this->addTitle($this->translate('Data lists'));
-        $this->actions()->add(Link::create(
-            $this->translate('Add'),
-            'director/data/list',
-            null,
-            [
+        $this->actions()->add(
+            Link::create($this->translate('Add'), 'director/data/list', null, [
                 'class' => 'icon-plus',
                 'data-base-target' => '_next'
-            ]
-        ));
+            ])
+        );
 
         $this->tabs(new DataTabs())->activate('datalist');
         (new DatalistTable($this->db()))->renderTo($this);
     }
 
+    /**
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function listAction()
     {
         $form = DirectorDatalistForm::load()
             ->setSuccessUrl('director/data/lists')
             ->setDb($this->db());
 
-        if ($id = $this->params->get('id')) {
-            $form->loadObject($id);
+        if ($name = $this->params->get('name')) {
+            $list = $this->requireList('name');
+            $form->setObject($list);
+            $this->addListActions($list);
             $this->addTitle(
                 $this->translate('Data List: %s'),
-                $form->getObject()->list_name
-            )->addListTabs($id, 'list');
+                $list->get('list_name')
+            )->addListTabs($name, 'list');
         } else {
             $this
                 ->addTitle($this->translate('Add a new Data List'))
@@ -74,17 +77,22 @@ class DataController extends ActionController
         (new CustomvarTable($this->db()))->renderTo($this);
     }
 
+    /**
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function listentryAction()
     {
-        $url = $this->url();
-        $entryName = $url->shift('entry_name');
-        $list = DirectorDatalist::load($url->shift('list_id'), $this->db());
-        $listId = $list->id;
-        $title = $title = $this->translate('List Entries') . ': ' . $list->list_name;
+        $entryName = $this->params->get('entry_name');
+        $list = $this->requireList('list');
+        $this->addListActions($list);
+        $listId = $list->get('id');
+        $listName = $list->get('list_name');
+        $title = $title = $this->translate('List Entries') . ': ' . $listName;
         $this->addTitle($title);
 
         $form = DirectorDatalistEntryForm::load()
-            ->setSuccessUrl('director/data/listentry', ['list_id' => $listId])
+            ->setSuccessUrl('director/data/listentry', ['list' => $listName])
             ->setList($list);
 
         if (null !== $entryName) {
@@ -95,29 +103,55 @@ class DataController extends ActionController
             $this->actions()->add(Link::create(
                 $this->translate('back'),
                 'director/data/listentry',
-                ['list_id' => $listId],
+                ['list' => $listName],
                 ['class' => 'icon-left-big']
             ));
         }
         $form->handleRequest();
 
-        $this->addListTabs($listId, 'entries');
+        $this->addListTabs($listName, 'entries');
 
         $table = new DatalistEntryTable($this->db());
-        $table->attributes()->set('data-base-target', '_self');
+        $table->getAttributes()->set('data-base-target', '_self');
         $table->setList($list);
         $this->content()->add([$form, $table]);
     }
 
-    protected function addListTabs($id, $activate)
+    protected function addListActions(DirectorDatalist $list)
+    {
+        $this->actions()->add(
+            Link::create(
+                $this->translate('Add to Basket'),
+                'director/basket/add',
+                [
+                    'type'  => 'DataList',
+                    'names' => $list->getUniqueIdentifier()
+                ],
+                ['class' => 'icon-tag']
+            )
+        );
+    }
+
+    /**
+     * @param $paramName
+     * @return DirectorDatalist
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    protected function requireList($paramName)
+    {
+        return DirectorDatalist::load($this->params->getRequired($paramName), $this->db());
+    }
+
+    protected function addListTabs($name, $activate)
     {
         $this->tabs()->add('list', [
             'url'       => 'director/data/list',
-            'urlParams' => ['id' => $id],
+            'urlParams' => ['name' => $name],
             'label'     => $this->translate('Edit list'),
         ])->add('entries', [
             'url'       => 'director/data/listentry',
-            'urlParams' => ['list_id' => $id],
+            'urlParams' => ['list' => $name],
             'label'     => $this->translate('List entries'),
         ])->activate($activate);
 

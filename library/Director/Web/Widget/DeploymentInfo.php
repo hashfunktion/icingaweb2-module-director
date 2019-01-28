@@ -2,6 +2,7 @@
 
 namespace Icinga\Module\Director\Web\Widget;
 
+use dipl\Html\HtmlDocument;
 use Icinga\Authentication\Auth;
 use Icinga\Module\Director\IcingaConfig\IcingaConfig;
 use Icinga\Module\Director\Objects\DirectorDeploymentLog;
@@ -15,7 +16,7 @@ use dipl\Translation\TranslationHelper;
 use dipl\Web\Widget\NameValueTable;
 use dipl\Web\Widget\Tabs;
 
-class DeploymentInfo extends Html
+class DeploymentInfo extends HtmlDocument
 {
     use TranslationHelper;
 
@@ -25,15 +26,26 @@ class DeploymentInfo extends Html
     /** @var IcingaConfig */
     protected $config;
 
+    /**
+     * DeploymentInfo constructor.
+     * @param DirectorDeploymentLog $deployment
+     */
     public function __construct(DirectorDeploymentLog $deployment)
     {
         $this->deployment = $deployment;
-        $this->config = IcingaConfig::load(
-            $deployment->config_checksum,
-            $deployment->getConnection()
-        );
+        if ($deployment->get('config_checksum') !== null) {
+            $this->config = IcingaConfig::load(
+                $deployment->get('config_checksum'),
+                $deployment->getConnection()
+            );
+        }
     }
 
+    /**
+     * @param Auth $auth
+     * @param Request $request
+     * @return Tabs
+     */
     public function getTabs(Auth $auth, Request $request)
     {
         $dep = $this->deployment;
@@ -64,8 +76,14 @@ class DeploymentInfo extends Html
         $table->addNameValuePairs([
             $this->translate('Deployment time') => $dep->start_time,
             $this->translate('Sent to')         => $dep->peer_identity,
-            $this->translate('Configuration')   => $this->getConfigDetails(),
-            $this->translate('Duration')        => $this->getDurationInfo(),
+        ]);
+        if ($this->config !== null) {
+            $table->addNameValuePairs([
+                $this->translate('Configuration')   => $this->getConfigDetails(),
+                $this->translate('Duration')        => $this->getDurationInfo(),
+            ]);
+        }
+        $table->addNameValuePairs([
             $this->translate('Stage name')      => $dep->stage_name,
             $this->translate('Startup')         => $this->getStartupInfo()
         ]);
@@ -141,7 +159,7 @@ class DeploymentInfo extends Html
 
     protected function addStartupLog()
     {
-        $this->add(Html::h2($this->translate('Startup Log')));
+        $this->add(Html::tag('h2', null, $this->translate('Startup Log')));
         $this->add(
             Html::tag('pre', [
                 'class' => 'logfile'

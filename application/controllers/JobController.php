@@ -2,6 +2,7 @@
 
 namespace Icinga\Module\Director\Controllers;
 
+use dipl\Html\Link;
 use Icinga\Module\Director\Forms\DirectorJobForm;
 use Icinga\Module\Director\Web\Controller\ActionController;
 use Icinga\Module\Director\Objects\DirectorJob;
@@ -9,12 +10,17 @@ use Icinga\Module\Director\Web\Widget\JobDetails;
 
 class JobController extends ActionController
 {
+    /**
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function indexAction()
     {
         $job = $this->requireJob();
         $this
             ->addJobTabs($job, 'show')
             ->addTitle($this->translate('Job: %s'), $job->get('job_name'))
+            ->addToBasketLink()
             ->content()->add(new JobDetails($job));
     }
 
@@ -31,32 +37,59 @@ class JobController extends ActionController
             );
     }
 
+    /**
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function editAction()
     {
         $job = $this->requireJob();
         $form = DirectorJobForm::load()
             ->setListUrl('director/jobs')
             ->setObject($job)
-            ->loadObject($this->params->getRequired('id'))
             ->handleRequest();
 
         $this
             ->addJobTabs($job, 'edit')
             ->addTitle($this->translate('Job: %s'), $job->get('job_name'))
+            ->addToBasketLink()
             ->content()->add($form);
     }
 
     /**
      * @return DirectorJob
+     * @throws \Icinga\Exception\NotFoundError
+     * @throws \Icinga\Exception\MissingParameterException
      */
     protected function requireJob()
     {
-        return DirectorJob::load($this->params->getRequired('id'), $this->db());
+        return DirectorJob::loadWithAutoIncId((int) $this->params->getRequired('id'), $this->db());
+    }
+
+    /**
+     * @return $this
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    protected function addToBasketLink()
+    {
+        $job = $this->requireJob();
+        $this->actions()->add(Link::create(
+            $this->translate('Add to Basket'),
+            'director/basket/add',
+            [
+                'type'  => 'DirectorJob',
+                'names' => $job->getUniqueIdentifier()
+            ],
+            ['class' => 'icon-tag']
+        ));
+
+        return $this;
     }
 
     protected function addJobTabs(DirectorJob $job, $active)
     {
-        $id = $job->getId();
+        $id = $job->get('id');
 
         $this->tabs()->add('show', [
             'url'       => 'director/job',

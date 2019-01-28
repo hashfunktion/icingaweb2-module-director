@@ -21,11 +21,13 @@ class ObjectsTableService extends ObjectsTable
     public function getColumns()
     {
         return [
-            'object_name'   => 'o.object_name',
-            'disabled'      => 'o.disabled',
-            'host'          => 'h.object_name',
-            'host_disabled' => 'h.disabled',
-            'id'            => 'o.id',
+            'object_name'      => 'o.object_name',
+            'disabled'         => 'o.disabled',
+            'host'             => 'h.object_name',
+            'hots_object_type' => 'h.object_type',
+            'host_disabled'    => 'h.disabled',
+            'id'               => 'o.id',
+            'blacklisted'      => "CASE WHEN hsb.service_id IS NULL THEN 'n' ELSE 'y' END",
         ];
     }
 
@@ -55,21 +57,26 @@ class ObjectsTableService extends ObjectsTable
         ]);
 
         $caption = $row->host === null
-            ? Html::span(['class' => 'error'], '- none -')
+            ? Html::tag('span', ['class' => 'error'], '- none -')
             : $row->host;
 
         $hostField = static::td(Link::create($caption, $url));
         if ($row->host === null) {
-            $hostField->attributes()->add('class', 'error');
+            $hostField->getAttributes()->add('class', 'error');
         }
         $tr = static::tr([
             $hostField,
             static::td($row->object_name)
         ]);
 
+        $attributes = $tr->getAttributes();
         if ($row->host_disabled === 'y' || $row->disabled === 'y') {
-            $tr->attributes()->add('class', 'disabled');
+            $attributes->add('class', 'disabled');
         }
+        if ($row->blacklisted === 'y') {
+            $attributes->add('class', 'strike-links');
+        }
+
         return $tr;
     }
 
@@ -78,6 +85,10 @@ class ObjectsTableService extends ObjectsTable
         return parent::prepareQuery()->joinLeft(
             ['h' => 'icinga_host'],
             'o.host_id = h.id',
+            []
+        )->joinLeft(
+            ['hsb' => 'icinga_host_service_blacklist'],
+            'hsb.service_id = o.id AND hsb.host_id = o.host_id',
             []
         )->where('o.service_set_id IS NULL')
             ->order('o.object_name')->order('h.object_name');

@@ -4,6 +4,7 @@ namespace Icinga\Module\Director\Web\Table;
 
 use dipl\Html\Link;
 use dipl\Web\Table\ZfQueryBasedTable;
+use Icinga\Date\DateFormatter;
 
 class DeploymentLogTable extends ZfQueryBasedTable
 {
@@ -19,7 +20,7 @@ class DeploymentLogTable extends ZfQueryBasedTable
 
     public function assemble()
     {
-        $this->attributes()->add('class', 'deployment-log');
+        $this->getAttributes()->add('class', 'deployment-log');
     }
 
     public function renderRow($row)
@@ -29,11 +30,11 @@ class DeploymentLogTable extends ZfQueryBasedTable
         $shortSum = $this->getShortChecksum($row->config_checksum);
         $tr = $this::tr([
             $this::td(Link::create(
-                [$row->peer_identity, " ($shortSum)"],
+                $shortSum === null ? $row->peer_identity : [$row->peer_identity, " ($shortSum)"],
                 'director/deployment',
                 ['id' => $row->id]
             )),
-            $this::td(strftime('%H:%M:%S', $row->start_time))
+            $this::td(DateFormatter::formatTime($row->start_time))
         ])->addAttributes(['class' => $this->getMyRowClasses($row)]);
 
         return $tr;

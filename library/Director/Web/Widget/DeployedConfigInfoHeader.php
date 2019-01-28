@@ -2,7 +2,8 @@
 
 namespace Icinga\Module\Director\Web\Widget;
 
-use Icinga\Module\Director\Core\CoreApi;
+use dipl\Html\HtmlDocument;
+use Icinga\Module\Director\Core\DeploymentApiInterface;
 use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Forms\DeployConfigForm;
 use Icinga\Module\Director\IcingaConfig\IcingaConfig;
@@ -11,7 +12,7 @@ use dipl\Html\Link;
 use dipl\Translation\TranslationHelper;
 use dipl\Web\Widget\NameValueTable;
 
-class DeployedConfigInfoHeader extends Html
+class DeployedConfigInfoHeader extends HtmlDocument
 {
     use TranslationHelper;
 
@@ -24,13 +25,13 @@ class DeployedConfigInfoHeader extends Html
     /** @var Db */
     protected $db;
 
-    /** @var CoreApi */
+    /** @var DeploymentApiInterface */
     protected $api;
 
     public function __construct(
         IcingaConfig $config,
         Db $db,
-        CoreApi $api,
+        DeploymentApiInterface $api,
         $deploymentId = null
     ) {
         $this->config = $config;
@@ -39,11 +40,13 @@ class DeployedConfigInfoHeader extends Html
         if ($deploymentId) {
             $this->deploymentId = (int) $deploymentId;
         }
-
-        $this->prepareContent();
     }
 
-    protected function prepareContent()
+    /**
+     * @throws \Icinga\Exception\IcingaException
+     * @throws \Zend_Form_Exception
+     */
+    protected function assemble()
     {
         $config = $this->config;
         $deployForm = DeployConfigForm::load()
@@ -59,14 +62,14 @@ class DeployedConfigInfoHeader extends Html
             $this->translate('Actions'),
             [
                 $deployForm,
-                Html::br(),
+                Html::tag('br'),
                 Link::create(
                     $this->translate('Last related activity'),
                     'director/config/activity',
                     ['checksum' => $config->getLastActivityHexChecksum()],
                     ['class' => 'icon-clock', 'data-base-target' => '_next']
                 ),
-                Html::br(),
+                Html::tag('br'),
                 Link::create(
                     $this->translate('Diff with other config'),
                     'director/config/diff',

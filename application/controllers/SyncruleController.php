@@ -2,13 +2,24 @@
 
 namespace Icinga\Module\Director\Controllers;
 
+use dipl\Web\Widget\UnorderedList;
+use Icinga\Module\Director\ConfigDiff;
+use Icinga\Module\Director\Db\Cache\PrefetchCache;
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
 use Icinga\Module\Director\Forms\SyncCheckForm;
 use Icinga\Module\Director\Forms\SyncPropertyForm;
 use Icinga\Module\Director\Forms\SyncRuleForm;
 use Icinga\Module\Director\Forms\SyncRunForm;
+use Icinga\Module\Director\IcingaConfig\IcingaConfig;
+use Icinga\Module\Director\Import\Sync;
+use Icinga\Module\Director\Objects\IcingaHost;
+use Icinga\Module\Director\Objects\IcingaObject;
+use Icinga\Module\Director\Objects\IcingaService;
+use Icinga\Module\Director\Web\ActionBar\AutomationObjectActionBar;
 use Icinga\Module\Director\Web\Controller\ActionController;
 use Icinga\Module\Director\Objects\SyncRule;
 use Icinga\Module\Director\Objects\SyncRun;
+use Icinga\Module\Director\Web\Form\CloneSyncRuleForm;
 use Icinga\Module\Director\Web\Table\SyncpropertyTable;
 use Icinga\Module\Director\Web\Table\SyncRunTable;
 use Icinga\Module\Director\Web\Tabs\SyncRuleTabs;
@@ -18,6 +29,9 @@ use dipl\Html\Link;
 
 class SyncruleController extends ActionController
 {
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function indexAction()
     {
         $this->setAutoRefreshInterval(10);
@@ -26,6 +40,9 @@ class SyncruleController extends ActionController
         $ruleName = $rule->get('rule_name');
         $this->addTitle($this->translate('Sync rule: %s'), $ruleName);
 
+        $checkForm = SyncCheckForm::load()->setSyncRule($rule)->handleRequest();
+        $runForm = SyncRunForm::load()->setSyncRule($rule)->handleRequest();
+
         if ($lastRunId = $rule->getLastSyncRunId()) {
             $run = SyncRun::load($lastRunId, $this->db());
         } else {
@@ -33,25 +50,25 @@ class SyncruleController extends ActionController
         }
 
         $c = $this->content();
-        $c->add(Html::p($rule->get('description')));
+        $c->add(Html::tag('p', null, $rule->get('description')));
         if (! $rule->hasSyncProperties()) {
             $this->addPropertyHint($rule);
             return;
         }
-
+        $this->addMainActions();
         if (! $run) {
             $this->warning($this->translate('This Sync Rule has never been run before.'));
         }
 
         switch ($rule->get('sync_state')) {
             case 'unknown':
-                $c->add(Html::p($this->translate(
+                $c->add(Html::tag('p', null, $this->translate(
                     "It's currently unknown whether we are in sync with this rule."
                     . ' You should either check for changes or trigger a new Sync Run.'
                 )));
                 break;
             case 'in-sync':
-                $c->add(Html::p(sprintf(
+                $c->add(Html::tag('p', null, sprintf(
                     $this->translate('This Sync Rule was last found to by in Sync at %s.'),
                     $rule->get('last_attempt')
                 )));
@@ -78,14 +95,14 @@ class SyncruleController extends ActionController
                 break;
         }
 
-        $c->add(SyncCheckForm::load()->setSyncRule($rule)->handleRequest());
-        $c->add(SyncRunForm::load()->setSyncRule($rule)->handleRequest());
+        $c->add($checkForm);
+        $c->add($runForm);
 
         if ($run) {
-            $c->add(Html::h3($this->translate('Last sync run details')));
+            $c->add(Html::tag('h3', null, $this->translate('Last sync run details')));
             $c->add(new SyncRunDetails($run));
             if ($run->get('rule_name') !== $ruleName) {
-                $c->add(Html::p(sprintf(
+                $c->add(Html::tag('p', null, sprintf(
                     $this->translate("It has been renamed since then, its former name was %s"),
                     $run->get('rule_name')
                 )));
@@ -93,6 +110,9 @@ class SyncruleController extends ActionController
         }
     }
 
+    /**
+     * @param SyncRule $rule
+     */
     protected function addPropertyHint(SyncRule $rule)
     {
         $this->warning(Html::sprintf(
@@ -105,21 +125,322 @@ class SyncruleController extends ActionController
         ));
     }
 
+    /**
+     * @param $msg
+     */
     protected function warning($msg)
     {
-        $this->content()->add(Html::p(['class' => 'warning'], $msg));
+        $this->content()->add(Html::tag('p', ['class' => 'warning'], $msg));
     }
 
+    /**
+     * @param $msg
+     */
     protected function error($msg)
     {
-        $this->content()->add(Html::p(['class' => 'error'], $msg));
+        $this->content()->add(Html::tag('p', ['class' => 'error'], $msg));
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function addAction()
     {
         $this->editAction();
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     * @throws \Exception
+     */
+    public function previewAction()
+    {
+        $rule = $this->requireSyncRule();
+        // $rule->set('update_policy', 'replace');
+        $this->tabs(new SyncRuleTabs($rule))->activate('preview');
+        $this->addTitle('Sync Preview');
+        $sync = new Sync($rule);
+        $modifications = $sync->getExpectedModifications();
+
+        if (empty($modifications)) {
+            $this->content()->add(Html::tag('p', [
+                'class' => 'information'
+            ], $this->translate('This Sync Rule is in sync and would currently not apply any changes')));
+
+            return;
+        }
+
+        $create = [];
+        $modify = [];
+        $delete = [];
+        $modifiedProperties = [];
+
+        /** @var IcingaObject $object */
+        foreach ($modifications as $object) {
+            if ($object->hasBeenLoadedFromDb()) {
+                if ($object->shouldBeRemoved()) {
+                    $delete[] = $object;
+                } else {
+                    $modify[] = $object;
+                    foreach ($object->getModifiedProperties() as $property => $value) {
+                        if (isset($modifiedProperties[$property])) {
+                            $modifiedProperties[$property]++;
+                        } else {
+                            $modifiedProperties[$property] = 1;
+                        }
+                    }
+                    if (! $object instanceof IcingaObject) {
+                        continue;
+                    }
+                    if ($object->supportsGroups()) {
+                        if ($object->hasModifiedGroups()) {
+                            if (isset($modifiedProperties['groups'])) {
+                                $modifiedProperties['groups']++;
+                            } else {
+                                $modifiedProperties['groups'] = 1;
+                            }
+                        }
+                    }
+
+                    if ($object->supportsImports()) {
+                        if ($object->imports()->hasBeenModified()) {
+                            if (isset($modifiedProperties['imports'])) {
+                                $modifiedProperties['imports']++;
+                            } else {
+                                $modifiedProperties['grouimportsps'] = 1;
+                            }
+                        }
+                    }
+                    if ($object->supportsCustomVars()) {
+                        if ($object->vars()->hasBeenModified()) {
+                            foreach ($object->vars() as $var) {
+                                if ($var->isNew()) {
+                                    $varName = 'add vars.' . $var->getKey();
+                                } elseif ($var->hasBeenDeleted()) {
+                                    $varName = 'remove vars.' . $var->getKey();
+                                } elseif ($var->hasBeenModified()) {
+                                    $varName = 'vars.' . $var->getKey();
+                                } else {
+                                    continue;
+                                }
+                                if (isset($modifiedProperties[$varName])) {
+                                    $modifiedProperties[$varName]++;
+                                } else {
+                                    $modifiedProperties[$varName] = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                $create[] = $object;
+            }
+        }
+
+        $content = $this->content();
+        if (! empty($delete)) {
+            $content->add([
+                Html::tag('h2', ['class' => 'icon-cancel action-delete'], sprintf(
+                    $this->translate('%d object(s) will be deleted'),
+                    count($delete)
+                )),
+                $this->objectList($delete)
+            ]);
+        }
+        if (! empty($modify)) {
+            $content->add([
+                Html::tag('h2', ['class' => 'icon-wrench action-modify'], sprintf(
+                    $this->translate('%d object(s) will be modified'),
+                    count($modify)
+                )),
+                $this->listModifiedProperties($modifiedProperties),
+                $this->objectList($modify),
+            ]);
+        }
+        if (! empty($create)) {
+            $content->add([
+                Html::tag('h2', ['class' => 'icon-plus action-create'], sprintf(
+                    $this->translate('%d object(s) will be created'),
+                    count($create)
+                )),
+                $this->objectList($create)
+            ]);
+        }
+    }
+
+    /**
+     * @param IcingaObject[] $objects
+     * @return \dipl\Html\HtmlElement
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    protected function objectList($objects)
+    {
+        return Html::tag('p', $this->firstNames($objects));
+    }
+
+    /**
+     * Lots of duplicated code, this whole diff logic should be mouved to a
+     * dedicated class
+     *
+     * @param IcingaObject[] $objects
+     * @param int $max
+     * @return string
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    protected function firstNames($objects, $max = 50)
+    {
+        $names = [];
+        $list = new UnorderedList();
+        $list->addAttributes([
+            'style' => 'list-style-type: none; marign: 0; padding: 0',
+        ]);
+        $total = count($objects);
+        $i = 0;
+        PrefetchCache::forget();
+        IcingaHost::clearAllPrefetchCaches(); // why??
+        IcingaService::clearAllPrefetchCaches();
+        foreach ($objects as $object) {
+            $i++;
+            $name = $this->getObjectNameString($object);
+            if ($object->hasBeenLoadedFromDb()) {
+                if ($object instanceof IcingaHost) {
+                    $names[$name] = Link::create(
+                        $name,
+                        'director/host',
+                        ['name' => $name],
+                        ['data-base-target' => '_next']
+                    );
+                    $oldObject = IcingaHost::load($object->getObjectName(), $this->db());
+                    $cfgNew = new IcingaConfig($this->db());
+                    $cfgOld = new IcingaConfig($this->db());
+                    $oldObject->renderToConfig($cfgOld);
+                    $object->renderToConfig($cfgNew);
+                    foreach ($this->getConfigDiffs($cfgOld, $cfgNew) as $file => $diff) {
+                        $names[$name . '___PRETITLE___' . $file] = Html::tag('h3', $file);
+                        $names[$name . '___PREVIEW___' . $file] = $diff;
+                    }
+                } elseif ($object instanceof IcingaService && $object->isObject()) {
+                    $host = $object->getRelated('host');
+
+                    $names[$name] = Link::create(
+                        $name,
+                        'director/service/edit',
+                        [
+                            'name' => $object->getObjectName(),
+                            'host' => $host->getObjectName()
+                        ],
+                        ['data-base-target' => '_next']
+                    );
+                    $oldObject = IcingaService::load([
+                        'host_id' => $host->get('id'),
+                        'object_name' => $object->getObjectName()
+                    ], $this->db());
+
+                    $cfgNew = new IcingaConfig($this->db());
+                    $cfgOld = new IcingaConfig($this->db());
+                    $oldObject->renderToConfig($cfgOld);
+                    $object->renderToConfig($cfgNew);
+                    foreach ($this->getConfigDiffs($cfgOld, $cfgNew) as $file => $diff) {
+                        $names[$name . '___PRETITLE___' . $file] = Html::tag('h3', $file);
+                        $names[$name . '___PREVIEW___' . $file] = $diff;
+                    }
+                } else {
+                    $names[$name] = $name;
+                }
+            } else {
+                $names[$name] = $name;
+            }
+            if ($i === $max) {
+                break;
+            }
+        }
+        ksort($names);
+
+        foreach ($names as $name) {
+            $list->addItem($name);
+        }
+
+        if ($total > $max) {
+            $list->add(sprintf(
+                $this->translate('...and %d more'),
+                $total - $max
+            ));
+        }
+
+        return $list;
+    }
+
+    /**
+     * Stolen from elsewhere, should be de-duplicated
+     *
+     * @param IcingaConfig $oldConfig
+     * @param IcingaConfig $newConfig
+     * @return ConfigDiff[]
+     */
+    protected function getConfigDiffs(IcingaConfig $oldConfig, IcingaConfig $newConfig)
+    {
+        $oldFileNames = $oldConfig->getFileNames();
+        $newFileNames = $newConfig->getFileNames();
+
+        $fileNames = array_merge($oldFileNames, $newFileNames);
+
+        $diffs = [];
+        foreach ($fileNames as $filename) {
+            if (in_array($filename, $oldFileNames)) {
+                $left = $oldConfig->getFile($filename)->getContent();
+            } else {
+                $left = '';
+            }
+
+            if (in_array($filename, $newFileNames)) {
+                $right = $newConfig->getFile($filename)->getContent();
+            } else {
+                $right = '';
+            }
+            if ($left === $right) {
+                continue;
+            }
+
+            $diffs[$filename] = ConfigDiff::create($left, $right);
+        }
+
+        return $diffs;
+    }
+
+    protected function listModifiedProperties($properties)
+    {
+        $list = new UnorderedList();
+        foreach ($properties as $property => $cnt) {
+            $list->addItem("${cnt}x $property");
+        }
+
+        return $list;
+    }
+
+    protected function getObjectNameString($object)
+    {
+        if ($object instanceof IcingaService) {
+            if ($object->isObject()) {
+                return $object->getRelated('host')->getObjectName()
+                    . ': ' . $object->getObjectName();
+            } else {
+                return $object->getObjectName();
+            }
+        } elseif ($object instanceof IcingaHost) {
+            return $object->getObjectName();
+        } elseif ($object instanceof ExportInterface) {
+            return $object->getUniqueIdentifier();
+        } elseif ($object instanceof IcingaObject) {
+            return $object->getObjectName();
+        } else {
+            /** @var \Icinga\Module\Director\Data\Db\DbObject $object */
+            return json_encode($object->getKeyParams());
+        }
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function editAction()
     {
         $form = SyncRuleForm::load()
@@ -127,14 +448,15 @@ class SyncruleController extends ActionController
             ->setDb($this->db());
 
         if ($id = $this->params->get('id')) {
-            $form->loadObject($id);
+            $form->loadObject((int) $id);
             /** @var SyncRule $rule */
             $rule = $form->getObject();
             $this->tabs(new SyncRuleTabs($rule))->activate('edit');
             $this->addTitle(sprintf(
                 $this->translate('Sync rule: %s'),
-                $rule->rule_name
+                $rule->get('rule_name')
             ));
+            $this->addMainActions();
 
             if (! $rule->hasSyncProperties()) {
                 $this->addPropertyHint($rule);
@@ -148,6 +470,41 @@ class SyncruleController extends ActionController
         $this->content()->add($form);
     }
 
+    /**
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    public function cloneAction()
+    {
+        $id = $this->params->getRequired('id');
+        $rule = SyncRule::loadWithAutoIncId((int) $id, $this->db());
+        $this->tabs()->add('show', [
+            'url'       => 'director/syncrule',
+            'urlParams' => ['id' => $id],
+            'label'     => $this->translate('Sync rule'),
+        ])->add('clone', [
+            'url'       => 'director/syncrule/clone',
+            'urlParams' => ['id' => $id],
+            'label'     => $this->translate('Clone'),
+        ])->activate('clone');
+        $this->addTitle('Clone: %s', $rule->get('rule_name'));
+        $this->actions()->add(
+            Link::create(
+                $this->translate('Modify'),
+                'director/syncrule/edit',
+                ['id' => $rule->get('id')],
+                ['class' => 'icon-paste']
+            )
+        );
+
+        $form = new CloneSyncRuleForm($rule);
+        $this->content()->add($form);
+        $form->handleRequest($this->getRequest());
+    }
+
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function propertyAction()
     {
         $rule = $this->requireSyncRule('rule_id');
@@ -166,11 +523,17 @@ class SyncruleController extends ActionController
             ->renderTo($this);
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function editpropertyAction()
     {
         $this->addpropertyAction();
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function addpropertyAction()
     {
         $db = $this->db();
@@ -179,7 +542,7 @@ class SyncruleController extends ActionController
 
         $form = SyncPropertyForm::load()->setDb($db);
         if ($id = $this->params->get('id')) {
-            $form->loadObject($id);
+            $form->loadObject((int) $id);
             $this->addTitle(
                 $this->translate('Sync "%s": %s'),
                 $form->getObject()->get('destination_field'),
@@ -208,12 +571,15 @@ class SyncruleController extends ActionController
             ->renderTo($this);
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
     public function historyAction()
     {
         $this->setAutoRefreshInterval(30);
         $rule = $this->requireSyncRule();
         $this->tabs(new SyncRuleTabs($rule))->activate('history');
-        $this->addTitle($this->translate('Sync history') . ': ' . $rule->rule_name);
+        $this->addTitle($this->translate('Sync history') . ': ' . $rule->get('rule_name'));
 
         if ($runId = $this->params->get('run_id')) {
             $run = SyncRun::load($runId, $this->db());
@@ -222,9 +588,38 @@ class SyncruleController extends ActionController
         SyncRunTable::create($rule)->renderTo($this);
     }
 
+    /**
+     * @throws \Icinga\Exception\NotFoundError
+     */
+    protected function addMainActions()
+    {
+        $this->actions(new AutomationObjectActionBar(
+            $this->getRequest()
+        ));
+        $source = $this->requireSyncRule();
+
+        $this->actions()->add(Link::create(
+            $this->translate('Add to Basket'),
+            'director/basket/add',
+            [
+                'type'  => 'SyncRule',
+                'names' => $source->getUniqueIdentifier()
+            ],
+            [
+                'class' => 'icon-tag',
+                'data-base-target' => '_next',
+            ]
+        ));
+    }
+
+    /**
+     * @param string $key
+     * @return SyncRule
+     * @throws \Icinga\Exception\NotFoundError
+     */
     protected function requireSyncRule($key = 'id')
     {
         $id = $this->params->get($key);
-        return SyncRule::load($id, $this->db());
+        return SyncRule::loadWithAutoIncId($id, $this->db());
     }
 }

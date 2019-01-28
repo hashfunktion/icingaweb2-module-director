@@ -42,8 +42,22 @@ abstract class DbObjectWithSettings extends DbObject
         return parent::get($key);
     }
 
+    public function setSettings($settings)
+    {
+        $settings = (array) $settings;
+        ksort($settings);
+        if ($settings !== $this->settings) {
+            $this->settings = $settings;
+            $this->hasBeenModified = true;
+        }
+
+        return $this;
+    }
+
     public function getSettings()
     {
+        // Sort them, important only for new objects
+        ksort($this->settings);
         return $this->settings;
     }
 
@@ -132,10 +146,15 @@ abstract class DbObjectWithSettings extends DbObject
     protected function fetchSettingsFromDb()
     {
         $db = $this->getDb();
+        $id = $this->get('id');
+        if (! $id) {
+            return [];
+        }
+
         return $db->fetchPairs(
             $db->select()
                ->from($this->settingsTable, ['setting_name', 'setting_value'])
-               ->where($this->settingsRemoteId . ' = ?', $this->get('id'))
+               ->where($this->settingsRemoteId . ' = ?', $id)
                ->order('setting_name')
         );
     }

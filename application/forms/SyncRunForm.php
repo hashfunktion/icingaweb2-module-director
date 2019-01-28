@@ -35,13 +35,11 @@ class SyncRunForm extends DirectorForm
                 $this->translate(('Source has successfully been synchronized'))
             );
         } elseif ($rule->get('sync_state') === 'in-sync') {
-            $this->setSuccessMessage(
+            $this->notifySuccess(
                 $this->translate('Nothing changed, rule is in sync')
             );
         } else {
             $this->addError($this->translate('Synchronization failed'));
         }
-
-        parent::onSuccess();
     }
 }

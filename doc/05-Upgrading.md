@@ -16,6 +16,8 @@ you will be told so in your frontend.
 Please read more about:
 
 * [Database Backup](#backup-first)
+* [Upgrading to 1.6.x](#upgrade-to-1.6.x)
+* [Upgrading to 1.5.x](#upgrade-to-1.5.x)
 * [Upgrading to 1.4.x](#upgrade-to-1.4.x)
 * [Upgrading to 1.3.0](#upgrade-to-1.3.0)
 * [Upgrading to 1.2.0](#upgrade-to-1.2.0)
@@ -35,6 +37,26 @@ All you need for backing up your Director is a snapshot of your database. Please
 use the tools provided by your database backend, like `mysqldump` or `pg_dump`.
 Restoring from a backup is trivial, and Director will always be able to apply
 pending database migrations to an imported old database snapshot.
+
+<a name="upgrade-to-1.6.x"></a>Upgrading to 1.6.x
+-------------------------------------------------
+
+There is nothing special to take care of. In case you are running 1.5.x or any
+GIT master since then, all you need is to replace the Director module folder
+with the new one. Or to run git checkout v1.6.0 in case you installed Director
+from GIT.
+
+As always, you'll then be prompted to apply pending Database Migrations.
+
+<a name="upgrade-to-1.5.x"></a>Upgrading to 1.5.x
+-------------------------------------------------
+
+There is nothing special to take care of. In case you are running 1.4.x or any
+GIT master since then, all you need is to replace the Director module folder
+with the new one. Or to run git checkout v1.5.0 in case you installed Director
+from GIT.
+
+As always, you'll then be prompted to apply pending Database Migrations.
 
 <a name="upgrade-to-1.4.x"></a>Upgrading to 1.4.x
 -------------------------------------------------
@@ -97,7 +119,7 @@ will always be a clean upgrade path for you, no manual interaction should ever
 be required. Like every human being, we are not infallible. So, while our strict
 policy says that the master should never break, this might of course happen.
 
-In that case, please [let us know](https://dev.icinga.com/projects/icingaweb2-module-director/issues)
+In that case, please [let us know](https://github.com/Icinga/icingaweb2-module-director/issues).
 We'll try to fix your issue as soon as possible.
 
 <a name="schema-migrations"></a>Database schema migrations

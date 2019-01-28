@@ -105,7 +105,9 @@ class ObjectTabs extends Tabs
         }
 
         // TODO: remove table check once we resolve all group types
-        if ($object->isGroup() && $object->getShortTableName() === 'hostgroup') {
+        if ($object->isGroup() &&
+            ($object->getShortTableName() === 'hostgroup' || $object->getShortTableName() === 'servicegroup')
+        ) {
             $this->add('membership', [
                 'url'       => sprintf('director/%s/membership', $type),
                 'urlParams' => $params,
@@ -121,7 +123,9 @@ class ObjectTabs extends Tabs
             ]);
         }
 
-        if ($object->getShortTableName() === 'endpoint') {
+        if ($object->getShortTableName() === 'endpoint'
+            && $object->get('apiuser_id')
+        ) {
             $this->add('inspect', [
                 'url'       => 'director/inspect/types',
                 'urlParams' => ['endpoint' => $object->getObjectName()],

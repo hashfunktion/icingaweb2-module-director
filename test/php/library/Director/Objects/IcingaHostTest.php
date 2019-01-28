@@ -256,7 +256,7 @@ class IcingaHostTest extends BaseTestCase
     }
 
     /**
-     * @expectedException \Icinga\Exception\NotFoundError
+     * @expectedException \RuntimeException
      */
     public function testFailsToStoreWithMissingLazyRelations()
     {
@@ -337,7 +337,7 @@ class IcingaHostTest extends BaseTestCase
     }
 
     /**
-     * @expectedException \Icinga\Exception\NotFoundError
+     * @expectedException \RuntimeException
      */
     public function testFailsToStoreWithInvalidUnresolvedDependencies()
     {
@@ -425,7 +425,7 @@ class IcingaHostTest extends BaseTestCase
         $a->store();
         try {
             $b->store();
-        } catch (IcingaException $e) {
+        } catch (\RuntimeException $e) {
             $msg = $e->getMessage();
             $matchMysql = strpos(
                 $msg,
@@ -722,7 +722,8 @@ class IcingaHostTest extends BaseTestCase
             "${prefix}retry_interval" => "retry_interval",
             "${prefix}volatile" => "volatile",
             "${prefix}zone" => "zone",
-            "${prefix}groups" => "Groups"
+            "${prefix}groups" => "Groups",
+            "${prefix}templates" => "templates"
         );
     }
     protected function loadRendered($name)

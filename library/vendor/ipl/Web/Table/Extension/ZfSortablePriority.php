@@ -5,7 +5,7 @@ namespace dipl\Web\Table\Extension;
 use Icinga\Module\Director\Web\Form\IconHelper;
 use Icinga\Web\Request;
 use Icinga\Web\Response;
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
 use dipl\Html\HtmlString;
 use Zend_Db_Select as ZfSelect;
@@ -31,7 +31,7 @@ trait ZfSortablePriority
 
         if ($request->isPost() && $this->hasBeenSent($request)) {
             // $this->fixPriorities();
-            foreach ($request->getPost() as $key => $value) {
+            foreach (array_keys($request->getPost()) as $key) {
                 if (substr($key, 0, 8) === 'MOVE_UP_') {
                     $id = (int) substr($key, 8);
                     $this->moveRow($id, 'up');
@@ -50,7 +50,7 @@ trait ZfSortablePriority
         return $request->getPost('__FORM_NAME') === $this->getUniqueFormName();
     }
 
-    protected function addSortPriorityButtons(BaseElement $tr, $row)
+    protected function addSortPriorityButtons(BaseHtmlElement $tr, $row)
     {
         $tr->add(
             Html::tag(
@@ -156,11 +156,11 @@ trait ZfSortablePriority
         );
 
         if ($this->isOnFirstRow()) {
-            $up->attributes()->add('disabled', 'disabled');
+            $up->getAttributes()->add('disabled', 'disabled');
         }
 
         if ($this->isOnLastRow()) {
-            $down->attributes()->add('disabled', 'disabled');
+            $down->getAttributes()->add('disabled', 'disabled');
         }
 
         return [$down, $up];

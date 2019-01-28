@@ -2,14 +2,14 @@
 
 namespace dipl\Html;
 
-class Icon extends BaseElement
+class Icon extends BaseHtmlElement
 {
     protected $tag = 'i';
 
     public function __construct($name, $attributes = null)
     {
         $this->setAttributes($attributes);
-        $this->attributes()->add('class', array('icon', 'icon-' . $name));
+        $this->getAttributes()->add('class', array('icon', 'icon-' . $name));
     }
 
     /**

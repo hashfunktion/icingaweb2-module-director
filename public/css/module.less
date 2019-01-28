@@ -1,3 +1,12 @@
+div.action-bar a:focus, .tabs a:focus {
+  outline: none;
+  text-decoration: underline;
+
+  &:before {
+    text-decoration: none;
+  }
+}
+
 div.action-bar a, div.action-bar form i {
   color: @icinga-blue;
 }
@@ -260,6 +269,10 @@ table.avp th {
 
 .content form.inline {
   margin: 0;
+
+  i.icon::before {
+    color: @icinga-blue;
+  }
 }
 
 .invisible {
@@ -293,7 +306,9 @@ form input[type=submit].link-button {
   color: @icinga-blue;
   background: none;
   border: none;
+  font-weight: normal;
   padding: 0;
+  margin: 0;
 
   text-align: left;
 
@@ -354,6 +369,10 @@ input[type=text], input[type=password], textarea, select {
     }
 }
 
+textarea {
+  max-width: 100%;
+}
+
 select[multiple] {
     height: auto;
 }
@@ -376,7 +395,7 @@ form dl {
     padding: 0;
 }
 
-.strike-links a {
+.strike-links a, table.common-table .strike-links a {
   text-decoration: line-through;
   &:hover {
     text-decoration: line-through;
@@ -588,6 +607,26 @@ a {
     &.state-pending {
         color: @color-pending;
     }
+}
+ul.tabs a.state-critical {
+  background-color: @colorCritical;
+  font-weight: bold;
+  color: white;
+}
+ul.tabs a.state-warning {
+  background-color: @colorWarning;
+  font-weight: bold;
+  color: white;
+}
+ul.tabs a.state-ok {
+  background-color: @colorOk;
+  font-weight: bold;
+  color: white;
+}
+ul.tabs a.state-unknown {
+  background-color: @colorUnknown;
+  font-weight: bold;
+  color: white;
 }
 
 a:hover::before {
@@ -849,71 +888,32 @@ form dd.active li.active input.related-action[type='submit'] {
 
 form {
   p.description {
-    color: inherit;
-    font-style: normal;
-    position: absolute;
-    bottom: 1em;
-    width: 96%;
-    max-width: unset;
-    margin-left: 13em;
-    max-height: 12em;
-    overflow-x: auto;
-    background: @tr-active-color;
-    border: 1px solid @icinga-blue;
-    border-radius: 0.5em;
-    font-size: 1.2em;
-    right: 2%;
-    color: @icinga-blue;
-    padding-left: 3em;
+    color: @gray;
+    font-style: italic;
+    padding: 0.25em 0.5em;
     display: none;
-    z-index: 100;
   }
 
-  p.description:before {
-    content: '\e881';
-    font-family: 'ifont';
-    font-size: 1.5em;
-    color: @icinga-blue;
-    position: absolute;
-    margin-left: -1.5em;
-    margin-top: -0.25em;
+  dd.active {
+    p.description {
+      font-style: normal;
+      display: block;
+      height: auto;
+      color: @text-color;
+    }
   }
 }
 
-#layout.minimal-layout {
-  form p.description {
-    margin: 0;
-    border-radius: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    max-height: 8em;
-    font-size: 0.835em;
-    max-width: unset;
+form.db-selector {
+  padding: 0;
+  margin: 0;
+  select {
+    float: right;
+    text-align: center;
+    max-width: 20em;
+    margin-top: 0.5em;
+    min-width: 14em;
     width: auto;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-  }
-}
-
-#layout.twocols {
-  form {
-    p.description {
-      width: 46%;
-      max-width: 46%;
-    }
-  }
-}
-
-#layout.twocols &#col1 {
-  form {
-    p.description {
-      margin-right: auto;
-      right: auto;
-      margin-left: 2%;
-      left: 0;
-    }
   }
 }
 
@@ -1010,6 +1010,46 @@ form div.hint {
 
 /* END of Forms */
 
+ul.health-check-result {
+  list-style-type: none;
+  padding: 0;
+  margin-bottom: 2em;
+  li {
+    line-height: 2em;
+  }
+  .badge {
+    font-weight: bold;
+  }
+}
+
+.title-badges {
+  .badge {
+    font-size: 0.6em;
+    margin-left: 0.5em;
+  }
+}
+
+li.state {
+  border-left: 0.5em solid transparent;
+  margin-bottom: 0.5em;
+  padding-left: 1em;
+  &.state-ok {
+    border-color: @color-ok;
+  }
+  &.state-warning {
+    border-color: @color-warning;
+  }
+  &.state-critical {
+    border-color: @color-critical;
+  }
+  &.state-unknown {
+    border-color: @color-unknown;
+  }
+  &.state-pending {
+    border-color: @color-pending;
+  }
+}
+
 span.error {
   color: @colorCritical;
 
@@ -1017,6 +1057,7 @@ span.error {
     color: inherit;
   }
 }
+
 p.error {
     color: white;
     padding: 1em 2em;
@@ -1041,27 +1082,16 @@ p.warning {
     }
 }
 
-table.tinystats {
-  font-size: 0.7em;
-  float: right;
-  width: 16em;
+p.information {
+    color: white;
+    padding: 1em 2em;
+    background-color: @colorOk;
+    font-weight: bold;
 
-  thead {
-    th {
-      width: 7em;
-      text-align: right;
+    a {
+        color: inherit;
+        text-decoration: underline;
     }
-
-    th:first-child {
-      width: auto;
-    }
-  }
-
-  tbody {
-    th, td {
-      text-align: right;
-    }
-  }
 }
 
 table th.actions, table td.actions {
@@ -1368,6 +1398,10 @@ ul.filter-root {
     width: 100%;
     padding-left: 0.5em;
     list-style-type: none;
+    ul {
+      list-style-type:  none;
+      padding-left: 1.5em;
+    }
 
     ul.filter {
         padding-left: 1.5em;
@@ -1440,8 +1474,8 @@ li.filter-chain > select.operator {
 div.filter-expression {
     .column {
         min-width: 7em;
-        max-width: 10em;
-        width: 10em;
+        max-width: 30em;
+        width: auto;
     }
 
     .sign {
@@ -1461,7 +1495,7 @@ div.filter-expression {
         vertical-align: top;
     }
 
-    div.expression-wrapper > input[type=text], 
+    div.expression-wrapper > input[type=text],
     div.expression-wrapper > select {
         min-width: 7em;
         width: 10em;
@@ -1582,6 +1616,16 @@ div.exception {
   margin: 1em;
 }
 
+h2.action-create::before {
+  color: @color-pending;
+}
+h2.action-modify::before {
+  color: @color-ok;
+}
+h2.action-delete::before {
+  color: @color-critical;
+}
+
 /** php-diff **/
 
 .Differences {
@@ -1682,3 +1726,18 @@ div.exception {
     background: #e99;
 }
 /** END of php-diff **/
+
+.DifferencesInline {
+  tr td:last-child {
+    width: 90%;
+  }
+  tr th:first-child {
+    width: 5%;
+  }
+  tr th:nth-child(2) {
+    width: 5%;
+  }
+  ins, del {
+    text-decoration: none;
+  }
+}

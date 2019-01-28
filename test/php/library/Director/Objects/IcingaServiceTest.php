@@ -27,7 +27,7 @@ class IcingaServiceTest extends BaseTestCase
     }
 
     /**
-     * @expectedException \Icinga\Exception\NotFoundError
+     * @expectedException \RuntimeException
      */
     public function testFailsToStoreWithMissingLazyRelations()
     {
@@ -51,7 +51,7 @@ class IcingaServiceTest extends BaseTestCase
     }
 
     /**
-     * @expectedException Icinga\Exception\ProgrammingError
+     * @expectedException \LogicException
      */
     public function testRefusesAssignRulesWhenNotBeingAnApply()
     {

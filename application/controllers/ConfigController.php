@@ -22,12 +22,13 @@ use Icinga\Module\Director\Web\Widget\ActivityLogInfo;
 use Icinga\Module\Director\Web\Widget\DeployedConfigInfoHeader;
 use Icinga\Module\Director\Web\Widget\ShowConfigFile;
 use Icinga\Web\Notification;
-use Icinga\Web\Url;
 use Exception;
+use RuntimeException;
 use dipl\Html\Html;
 use dipl\Html\HtmlString;
 use dipl\Html\Icon;
 use dipl\Html\Link;
+use dipl\Web\Url;
 
 class ConfigController extends ActionController
 {
@@ -37,6 +38,9 @@ class ConfigController extends ActionController
     {
     }
 
+    /**
+     * @throws \Icinga\Security\SecurityException
+     */
     public function deploymentsAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -52,6 +56,9 @@ class ConfigController extends ActionController
                 $this->setAutorefreshInterval(20);
             }
         } catch (Exception $e) {
+            $this->content()->prepend(
+                Html::tag('p', ['class' => 'warning'], $e->getMessage())
+            );
             // No problem, Icinga might be reloading
         }
 
@@ -77,6 +84,11 @@ class ConfigController extends ActionController
         $table->renderTo($this);
     }
 
+    /**
+     * @throws NotFoundError
+     * @throws \Icinga\Module\Director\Exception\DuplicateKeyException
+     * @throws \Icinga\Security\SecurityException
+     */
     public function deployAction()
     {
         $request = $this->getRequest();
@@ -85,17 +97,17 @@ class ConfigController extends ActionController
         }
 
         if (! $request->isPost()) {
-            throw new IcingaException(
+            throw new RuntimeException(sprintf(
                 'Unsupported method: %s',
                 $request->getMethod()
-            );
+            ));
         }
         $this->assertPermission('director/deploy');
 
         // TODO: require POST
         $checksum = $this->params->get('checksum');
         if ($checksum) {
-            $config = IcingaConfig::load(Util::hex2binary($checksum), $this->db());
+            $config = IcingaConfig::load(hex2bin($checksum), $this->db());
         } else {
             $config = IcingaConfig::generate($this->db());
             $checksum = $config->getHexChecksum();
@@ -114,6 +126,9 @@ class ConfigController extends ActionController
         }
     }
 
+    /**
+     * @throws \Icinga\Security\SecurityException
+     */
     public function activitiesAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -161,6 +176,11 @@ class ConfigController extends ActionController
         $table->renderTo($this);
     }
 
+    /**
+     * @throws IcingaException
+     * @throws \Icinga\Exception\Http\HttpNotFoundException
+     * @throws \Icinga\Exception\ProgrammingError
+     */
     public function activityAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -185,6 +205,9 @@ class ConfigController extends ActionController
         $this->content()->add($info);
     }
 
+    /**
+     * @throws \Icinga\Security\SecurityException
+     */
     public function settingsAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -203,6 +226,9 @@ class ConfigController extends ActionController
 
     /**
      * Show all files for a given config
+     *
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Security\SecurityException
      */
     public function filesAction()
     {
@@ -211,7 +237,7 @@ class ConfigController extends ActionController
         }
         $this->assertPermission('director/showconfig');
         $config = IcingaConfig::load(
-            Util::hex2binary($this->params->getRequired('checksum')),
+            hex2bin($this->params->getRequired('checksum')),
             $this->db()
         );
         $deploymentId = $this->params->get('deployment_id');
@@ -246,6 +272,9 @@ class ConfigController extends ActionController
 
     /**
      * Show a single file
+     *
+     * @throws \Icinga\Exception\MissingParameterException
+     * @throws \Icinga\Security\SecurityException
      */
     public function fileAction()
     {
@@ -267,7 +296,7 @@ class ConfigController extends ActionController
             $this->addBackLink('director/config/files', $params);
         }
 
-        $config = IcingaConfig::load(Util::hex2binary($this->params->get('config_checksum')), $this->db());
+        $config = IcingaConfig::load(hex2bin($this->params->get('config_checksum')), $this->db());
         $this->addTitle($this->translate('Config file "%s"'), $filename);
         $this->content()->add(new ShowConfigFile(
             $config->getFile($filename),
@@ -276,7 +305,11 @@ class ConfigController extends ActionController
         ));
     }
 
-    // TODO: Check if this can be removed
+    /**
+     * TODO: Check if this can be removed
+     *
+     * @throws \Icinga\Security\SecurityException
+     */
     public function storeAction()
     {
         $this->assertPermission('director/deploy');
@@ -289,6 +322,9 @@ class ConfigController extends ActionController
         );
     }
 
+    /**
+     * @throws \Icinga\Security\SecurityException
+     */
     public function diffAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -310,7 +346,8 @@ class ConfigController extends ActionController
             }
         }
 
-        $this->content()->add(Html::form(['action' => $this->url(), 'method' => 'GET'], [
+        $baseUrl = $this->url()->without(['left', 'right']);
+        $this->content()->add(Html::tag('form', ['action' => (string) $baseUrl, 'method' => 'GET'], [
             new HtmlString($this->view->formSelect(
                 'left',
                 $leftSum,
@@ -319,7 +356,7 @@ class ConfigController extends ActionController
             )),
             Link::create(
                 Icon::create('flapping'),
-                $this->url(),
+                $baseUrl,
                 ['left' => $rightSum, 'right' => $leftSum]
             ),
             new HtmlString($this->view->formSelect(
@@ -336,6 +373,10 @@ class ConfigController extends ActionController
         ConfigFileDiffTable::load($leftSum, $rightSum, $this->db())->renderTo($this);
     }
 
+    /**
+     * @throws IcingaException
+     * @throws \Icinga\Exception\MissingParameterException
+     */
     public function filediffAction()
     {
         if ($this->sendNotFoundForRestApi()) {
@@ -349,8 +390,8 @@ class ConfigController extends ActionController
         $rightSum = $p->getRequired('right');
         $filename = $p->getRequired('file_path');
 
-        $left = IcingaConfig::load(Util::hex2binary($leftSum), $db);
-        $right = IcingaConfig::load(Util::hex2binary($rightSum), $db);
+        $left = IcingaConfig::load(hex2bin($leftSum), $db);
+        $right = IcingaConfig::load(hex2bin($rightSum), $db);
 
         $this
             ->addTitle($this->translate('Config file "%s"'), $filename)
@@ -361,6 +402,9 @@ class ConfigController extends ActionController
             ));
     }
 
+    /**
+     * @param $checksum
+     */
     protected function deploymentSucceeded($checksum)
     {
         if ($this->getRequest()->isApiRequest()) {
@@ -375,6 +419,10 @@ class ConfigController extends ActionController
         }
     }
 
+    /**
+     * @param $checksum
+     * @param null $error
+     */
     protected function deploymentFailed($checksum, $error = null)
     {
         $extra = $error ? ': ' . $error: '';
@@ -391,6 +439,9 @@ class ConfigController extends ActionController
         }
     }
 
+    /**
+     * @return \dipl\Web\Widget\Tabs
+     */
     protected function configTabs()
     {
         $tabs = $this->tabs();

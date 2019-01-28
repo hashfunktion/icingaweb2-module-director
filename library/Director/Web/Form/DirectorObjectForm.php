@@ -11,6 +11,7 @@ use Icinga\Module\Director\Exception\NestingError;
 use Icinga\Module\Director\IcingaConfig\StateFilterSet;
 use Icinga\Module\Director\IcingaConfig\TypeFilterSet;
 use Icinga\Module\Director\Objects\IcingaTemplateChoice;
+use Icinga\Module\Director\Objects\IcingaCommand;
 use Icinga\Module\Director\Objects\IcingaObject;
 use Icinga\Module\Director\Util;
 use Icinga\Module\Director\Web\Form\Validate\NamePattern;
@@ -780,14 +781,15 @@ abstract class DirectorObjectForm extends DirectorForm
         } catch (Exception $e) {
             $this->addUniqueException($e);
         }
+
+        if ($this->shouldBeDeleted()) {
+            $this->deleteObject($this->object());
+        }
     }
 
     protected function handlePost()
     {
         $object = $this->object();
-        if ($this->shouldBeDeleted()) {
-            $this->deleteObject($object);
-        }
 
         $post = $this->getRequest()->getPost();
         $this->populate($post);
@@ -885,6 +887,15 @@ abstract class DirectorObjectForm extends DirectorForm
                     )
                 );
             }
+        } elseif ($object instanceof IcingaCommand && $object->isInUse()) {
+            $el->setAttrib('disabled', 'disabled');
+            $el->setAttrib(
+                'title',
+                sprintf(
+                    $this->translate('This Command is still in use by %d other objects'),
+                    $object->countDirectUses()
+                )
+            );
         }
 
         $this->addElement($el);
@@ -979,7 +990,11 @@ abstract class DirectorObjectForm extends DirectorForm
     {
         /** @var DbObject $class */
         $class = $this->getObjectClassname();
-        $this->object = $class::load($id, $this->db);
+        if (is_int($id)) {
+            $this->object = $class::loadWithAutoIncId($id, $this->db);
+        } else {
+            $this->object = $class::load($id, $this->db);
+        }
 
         // TODO: hmmmm...
         if (! is_array($id) && $this->object->getKeyName() === 'id') {
@@ -1105,6 +1120,10 @@ abstract class DirectorObjectForm extends DirectorForm
      */
     protected function addChoices($type)
     {
+        if ($this->isTemplate()) {
+            return $this;
+        }
+
         $connection = $this->getDb();
         $choiceType = 'TemplateChoice' . ucfirst($type);
         $choices = IcingaObject::loadAllByType($choiceType, $connection);
@@ -1127,6 +1146,7 @@ abstract class DirectorObjectForm extends DirectorForm
     /**
      * @param bool $required
      * @return $this
+     * @throws \Zend_Form_Exception
      */
     protected function addImportsElement($required = null)
     {
@@ -1208,6 +1228,10 @@ abstract class DirectorObjectForm extends DirectorForm
         return $this;
     }
 
+    /**
+     * @return $this
+     * @throws \Zend_Form_Exception
+     */
     protected function addGroupDisplayNameElement()
     {
         $this->addElement('text', 'display_name', array(
@@ -1225,6 +1249,7 @@ abstract class DirectorObjectForm extends DirectorForm
      * @param bool $force
      *
      * @return $this
+     * @throws \Zend_Form_Exception
      */
     protected function addCheckCommandElements($force = false)
     {
@@ -1496,9 +1521,10 @@ abstract class DirectorObjectForm extends DirectorForm
      * Forms should use this helper method for objects using the typical
      * assign_filter column
      *
-     * @param array  $properties Form element properties
+     * @param array $properties Form element properties
      *
      * @return $this
+     * @throws \Zend_Form_Exception
      */
     protected function addAssignFilter($properties)
     {
@@ -1528,10 +1554,11 @@ abstract class DirectorObjectForm extends DirectorForm
      * TODO: Evaluate whether parts or all of this could be moved to the element
      * class.
      *
-     * @param string $name       Element name
-     * @param array  $properties Form element properties
+     * @param string $name Element name
+     * @param array $properties Form element properties
      *
      * @return $this
+     * @throws \Zend_Form_Exception
      */
     protected function addFilterElement($name, $properties)
     {

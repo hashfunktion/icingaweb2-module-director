@@ -4,13 +4,13 @@ namespace Icinga\Module\Director\Web\Tree;
 
 use Icinga\Module\Director\Db;
 use Icinga\Module\Director\Resolver\TemplateTree;
-use dipl\Html\BaseElement;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
 use dipl\Html\Link;
 use dipl\Translation\TranslationHelper;
 use dipl\Web\Widget\ControlsAndContent;
 
-class TemplateTreeRenderer extends BaseElement
+class TemplateTreeRenderer extends BaseHtmlElement
 {
     use TranslationHelper;
 
@@ -56,7 +56,7 @@ class TemplateTreeRenderer extends BaseElement
 
         $li = Html::tag('li');
         if (! $hasChildren) {
-            $li->attributes()->add('class', 'collapsed');
+            $li->getAttributes()->add('class', 'collapsed');
         }
 
         if ($hasChildren) {

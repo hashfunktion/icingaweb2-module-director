@@ -32,6 +32,8 @@ class ServiceController extends ObjectController
     {
         if ($host = $this->params->get('host')) {
             $this->host = IcingaHost::load($host, $this->db());
+        } elseif ($hostId = $this->params->get('host_id')) {
+            $this->host = IcingaHost::loadWithAutoIncId($hostId, $this->db());
         } elseif ($set = $this->params->get('set')) {
             $this->set = IcingaServiceSet::load(['object_name' => $set], $this->db());
         } elseif ($apply = $this->params->get('apply')) {
@@ -71,7 +73,7 @@ class ServiceController extends ObjectController
             $tabs->add('set', [
                 'url'       => 'director/serviceset',
                 'urlParams' => ['name' => $setName],
-                'label'     => $this->translate('Serviceset'),
+                'label'     => $this->translate('ServiceSet'),
             ])->add('services', [
                 'url'       => 'director/serviceset/services',
                 'urlParams' => ['name' => $setName],
@@ -206,26 +208,9 @@ class ServiceController extends ObjectController
         );
         $table = (new IcingaAppliedServiceTable($this->db()))
             ->setService($service);
-        $table->attributes()->set('data-base-target', '_self');
+        $table->getAttributes()->set('data-base-target', '_self');
 
         $this->content()->add($table);
-    }
-
-    public function loadForm($name)
-    {
-        $form = parent::loadForm($name);
-        if ($name === 'icingaService') {
-            if ($this->host) {
-                $form->setHost($this->host);
-            } elseif ($this->set) {
-                $form->setServiceSet($this->set)->setSuccessUrl(
-                    'director/serviceset/services',
-                    array('name' => $this->set->object_name)
-                );
-            }
-        }
-
-        return $form;
     }
 
     protected function loadObject()

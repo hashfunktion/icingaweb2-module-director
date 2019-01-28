@@ -2,7 +2,7 @@
 
 namespace dipl\Html;
 
-use Icinga\Exception\ProgrammingError;
+use InvalidArgumentException;
 
 /**
  * HTML Attribute
@@ -27,6 +27,7 @@ class Attribute
      *
      * @param $name
      * @param $value
+     * @throws InvalidArgumentException
      */
     public function __construct($name, $value = null)
     {
@@ -37,6 +38,7 @@ class Attribute
      * @param $name
      * @param $value
      * @return static
+     * @throws InvalidArgumentException
      */
     public static function create($name, $value)
     {
@@ -54,15 +56,15 @@ class Attribute
     /**
      * @param $name
      * @return $this
-     * @throws ProgrammingError
+     * @throws InvalidArgumentException
      */
     public function setName($name)
     {
-        if (! preg_match('/^[a-z][a-z:-]*$/i', $name)) {
-            throw new ProgrammingError(
+        if (! preg_match('/^[a-z][a-z0-9:-]*$/i', $name)) {
+            throw new InvalidArgumentException(sprintf(
                 'Attribute names with special characters are not yet allowed: %s',
                 $name
-            );
+            ));
         }
         $this->name = $name;
 
@@ -158,6 +160,7 @@ class Attribute
     /**
      * @param $name
      * @return static
+     * @throws InvalidArgumentException
      */
     public static function createEmpty($name)
     {
@@ -182,9 +185,9 @@ class Attribute
     {
         // TODO: escape differently
         if (is_array($value)) {
-            return Util::escapeForHtml(implode(' ', $value));
+            return Html::escape(implode(' ', $value));
         } else {
-            return Util::escapeForHtml((string) $value);
+            return Html::escape((string) $value);
         }
     }
 }

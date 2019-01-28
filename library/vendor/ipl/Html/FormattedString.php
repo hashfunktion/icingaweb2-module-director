@@ -12,19 +12,30 @@ class FormattedString implements ValidHtml
     /** @var ValidHtml */
     protected $string;
 
+    /**
+     * FormattedString constructor.
+     * @param $string
+     * @param array $arguments
+     */
     public function __construct($string, array $arguments = [])
     {
-        $this->string = Util::wantHtml($string);
+        $this->string = Html::wantHtml($string);
 
         foreach ($arguments as $key => $val) {
-            $this->arguments[$key] = Util::wantHtml($val);
+            $this->arguments[$key] = Html::wantHtml($val);
         }
     }
 
+    /**
+     * @param $string
+     * @return static
+     */
     public static function create($string)
     {
         $args = func_get_args();
-        return new static(array_shift($args), $args);
+        array_shift($args);
+
+        return new static($string, $args);
     }
 
     public function render()
@@ -33,5 +44,17 @@ class FormattedString implements ValidHtml
             $this->string->render(),
             $this->arguments
         );
+    }
+
+    /**
+     * @return string
+     */
+    public function __toString()
+    {
+        try {
+            return $this->render();
+        } catch (Exception $e) {
+            return Error::render($e);
+        }
     }
 }

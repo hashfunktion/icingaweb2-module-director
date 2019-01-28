@@ -2,6 +2,8 @@
 
 namespace Icinga\Module\Director\Web\Controller;
 
+use Icinga\Module\Director\DirectorObject\Automation\ExportInterface;
+use Icinga\Module\Director\Objects\IcingaCommand;
 use Icinga\Module\Director\Objects\IcingaObject;
 use Icinga\Module\Director\Web\Controller\Extension\DirectorDb;
 use Icinga\Module\Director\Web\Table\ApplyRulesTable;
@@ -99,6 +101,9 @@ abstract class TemplateController extends CompatController
     public function usageAction()
     {
         $template = $this->requireTemplate();
+        if (! $template->isTemplate() && $template instanceof IcingaCommand) {
+            $this->redirectNow($this->url()->setPath('director/command'));
+        }
         $templateName = $template->getObjectName();
 
         $type = $this->getType();
@@ -115,6 +120,18 @@ abstract class TemplateController extends CompatController
                 ['class' => 'icon-edit']
             )
         ]);
+        if ($template instanceof ExportInterface) {
+            $this->actions()->add(Link::create(
+                $this->translate('Add to Basket'),
+                'director/basket/add',
+                [
+                    'type'  => ucfirst($this->getType()) . 'Template',
+                    'names' => $template->getUniqueIdentifier()
+                ],
+                ['class' => 'icon-tag']
+            ));
+        }
+
         $list = new UnorderedList([], [
             'class' => 'vertical-action-list'
         ]);
@@ -153,13 +170,13 @@ abstract class TemplateController extends CompatController
         }
 
         $typeName = $this->getTranslatedType();
-        $this->content()->addPrintf(
+        $this->content()->add(Html::sprintf(
             $this->translate(
                 'This is the "%s" %s Template. Based on this, you might want to:'
             ),
             $typeName,
             $templateName
-        )->add(
+        ))->add(
             $list
         )->add(
             Html::tag('h2', null, $this->translate('Current Template Usage'))

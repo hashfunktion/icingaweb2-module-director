@@ -3,16 +3,16 @@
 namespace dipl\Web\Widget;
 
 use dipl\Html\Attributes;
-use dipl\Html\BaseElement;
-use dipl\Html\Element;
+use dipl\Html\BaseHtmlElement;
 use dipl\Html\Html;
+use dipl\Html\ValidHtml;
 
-class ListItem extends BaseElement
+class ListItem extends BaseHtmlElement
 {
     protected $contentSeparator = "\n";
 
     /**
-     * @param Html|array|string $content
+     * @param ValidHtml|array|string $content
      * @param Attributes|array $attributes
      *
      * @return $this
@@ -20,7 +20,7 @@ class ListItem extends BaseElement
     public function addItem($content, $attributes = null)
     {
         return $this->add(
-            Element::create('li', $content, $attributes)
+            Html::tag('li', $attributes, $content)
         );
     }
 }

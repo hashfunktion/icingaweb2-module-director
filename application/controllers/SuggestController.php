@@ -2,11 +2,11 @@
 
 namespace Icinga\Module\Director\Controllers;
 
+use dipl\Html\Html;
 use Icinga\Module\Director\Objects\IcingaHost;
 use Icinga\Module\Director\Objects\IcingaService;
 use Icinga\Module\Director\Web\Controller\ActionController;
 use Icinga\Data\Filter\Filter;
-use dipl\Html\Util;
 use Icinga\Module\Director\Objects\HostApplyMatches;
 
 class SuggestController extends ActionController
@@ -19,9 +19,19 @@ class SuggestController extends ActionController
     {
         // TODO: Using some temporarily hardcoded methods, should use DataViews later on
         $context = $this->getRequest()->getPost('context');
+        $key = null;
+
+        if (strpos($context, '!') !== false) {
+            list($context, $key) = preg_split('~!~', $context, 2);
+        }
+
         $func = 'suggest' . ucfirst($context);
         if (method_exists($this, $func)) {
-            $all = $this->$func();
+            if (! empty($key)) {
+                $all = $this->$func($key);
+            } else {
+                $all = $this->$func();
+            }
         } else {
             $all = array();
         }
@@ -46,7 +56,7 @@ class SuggestController extends ActionController
                     $matches[] = $this->highlight($str, $search);
                 }
             } else {
-                $matches[] = Util::escapeForHtml($str);
+                $matches[] = Html::escape($str);
             }
         }
 
@@ -192,7 +202,11 @@ class SuggestController extends ActionController
     protected function suggestCheckcommandnames()
     {
         $db = $this->db()->getDbAdapter();
-        $query = $db->select()->from('icinga_command', 'object_name')->order('object_name');
+        $query = $db->select()
+            ->from('icinga_command', 'object_name')
+            ->where('object_type != ?', 'template')
+            ->order('object_name');
+
         return $db->fetchCol($query);
     }
 
@@ -228,9 +242,63 @@ class SuggestController extends ActionController
         ]);
     }
 
+    protected function suggestDataListValues($field = null)
+    {
+        if ($field === null) {
+            // field is required!
+            return [];
+        }
+
+        $datalistType = 'Icinga\\Module\\Director\\DataType\\DataTypeDatalist';
+        $db = $this->db()->getDbAdapter();
+
+        $query = $db->select()
+            ->from(['f' =>'director_datafield'], [])
+            ->join(
+                ['sid' => 'director_datafield_setting'],
+                'sid.datafield_id = f.id AND sid.setting_name = \'datalist_id\'',
+                []
+            )
+            ->join(
+                ['l' => 'director_datalist'],
+                'l.id = sid.setting_value',
+                []
+            )
+            ->join(
+                ['e' => 'director_datalist_entry'],
+                'e.list_id = l.id',
+                ['entry_name', 'entry_value']
+            )
+            ->where('datatype = ?', $datalistType)
+            ->where('varname = ?', $field)
+            ->order('entry_value');
+
+
+        // TODO: respect allowed_roles
+        /* this implementation from DataTypeDatalist is broken
+        $roles = array_map('json_encode', Acl::instance()->listRoleNames());
+
+        if (empty($roles)) {
+            $query->where('allowed_roles IS NULL');
+        } else {
+            $query->where('(allowed_roles IS NULL OR allowed_roles IN (?))', $roles);
+        }
+        */
+
+        $data = [];
+        foreach ($db->fetchPairs($query) as $key => $label) {
+            $data[] = sprintf("%s [%s]", $label, $key);
+        }
+        return $data;
+    }
+
     protected function getFilterColumns($prefix, $keys)
     {
-        $all = IcingaService::enumProperties($this->db(), $prefix);
+        if ($prefix === 'host.') {
+            $all = IcingaHost::enumProperties($this->db(), $prefix);
+        } else {
+            $all = IcingaService::enumProperties($this->db(), $prefix);
+        }
         $res = [];
         foreach ($keys as $key) {
             if (array_key_exists($key, $all)) {
@@ -256,7 +324,7 @@ class SuggestController extends ActionController
     protected function highlight($val, $search)
     {
         $search = ($search);
-        $val = Util::escapeForHtml($val);
+        $val = Html::escape($val);
         return preg_replace(
             '/(' . preg_quote($search, '/') . ')/i',
             '<strong>\1</strong>',

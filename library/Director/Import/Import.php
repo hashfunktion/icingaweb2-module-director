@@ -301,12 +301,20 @@ class Import
             }
 
             foreach ($newRows as $row) {
-                $db->insert('imported_row', $rows[$row]);
-                foreach ($this->rowProperties[$row] as $property) {
-                    $db->insert('imported_row_property', array(
-                        'row_checksum'      => $this->quoteBinary($row),
-                        'property_checksum' => $property
-                    ));
+                try {
+                    $db->insert('imported_row', $rows[$row]);
+                    foreach ($this->rowProperties[$row] as $property) {
+                        $db->insert('imported_row_property', array(
+                            'row_checksum'      => $this->quoteBinary($row),
+                            'property_checksum' => $property
+                        ));
+                    }
+                } catch (Exception $e) {
+                    throw new IcingaException(
+                        "Error while storing a row for '%s' into database: %s",
+                        $rows[$row]['object_name'],
+                        $e->getMessage()
+                    );
                 }
             }
 
@@ -339,7 +347,7 @@ class Import
     protected function lastRowsetIs($checksum)
     {
         return $this->connection->getLatestImportedChecksum($this->source->get('id'))
-            === Util::binary2hex($checksum);
+            === bin2hex($checksum);
     }
 
     /**
@@ -391,7 +399,7 @@ class Import
         // ...
         // return array_diff($checksums, $existing);
 
-        $hexed = array_map('Icinga\Module\Director\Util::binary2hex', $checksums);
+        $hexed = array_map('bin2hex', $checksums);
 
         $conn = $this->connection;
         $query = $db
@@ -407,7 +415,7 @@ class Import
         $existing = $db->fetchCol($query);
         $new = array_diff($hexed, $existing);
 
-        return array_map('Icinga\Module\Director\Util::hex2binary', $new);
+        return array_map('hex2bin', $new);
     }
 
     /**
